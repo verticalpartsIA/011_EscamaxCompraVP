@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
 const omieClient = require('../services/omieClient');
-const { ORDERS_FILE, readOrders, updateOrder } = require('../services/orderStore');
+const { readOrders, findOrder, updateOrder } = require('../services/orderStore');
 const { validarPlanoPagamentoSalvo } = require('../services/paymentPlan');
 const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincronizacaoEtapa } = require('../services/omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
@@ -38,9 +38,9 @@ function withAprovacao(order) {
 }
 
 // GET /api/orders/stats — agregação por mês (sem filtro de data)
-router.get('/stats', authMiddleware, (req, res) => {
+router.get('/stats', authMiddleware, async (req, res) => {
     try {
-        const orders = readOrders();
+        const orders = await readOrders();
 
         const byMonth = {};
         let totalGeral = 0;
@@ -78,9 +78,9 @@ router.get('/stats', authMiddleware, (req, res) => {
 });
 
 // GET /api/orders?de=YYYY-MM-DD&ate=YYYY-MM-DD
-router.get('/', authMiddleware, (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
     try {
-        let orders = readOrders();
+        let orders = await readOrders();
 
         const { de, ate } = req.query;
         if (de) {
@@ -111,10 +111,9 @@ router.get('/aprovacoes/permissoes', authMiddleware, async (req, res) => {
     }
 });
 
-router.get('/:id/aprovacao', authMiddleware, (req, res) => {
+router.get('/:id/aprovacao', authMiddleware, async (req, res) => {
     try {
-        const orders = readOrders();
-        const order = orders.find(item => item.id === req.params.id);
+        const order = await findOrder(req.params.id);
         if (!order) return res.status(404).json({ error: 'Pedido não encontrado.' });
 
         const aprovacao = ensureAprovacao(order);
@@ -126,8 +125,7 @@ router.get('/:id/aprovacao', authMiddleware, (req, res) => {
 
 router.post('/:id/auditoria-omie', authMiddleware, async (req, res) => {
     try {
-        const orders = readOrders();
-        const order = orders.find(item => item.id === req.params.id);
+        const order = await findOrder(req.params.id);
         if (!order) return res.status(404).json({ error: 'Pedido não encontrado.' });
 
         if (order.pedido_compra?.status !== 'ok' || order.pedido_venda?.status !== 'ok') {
@@ -156,14 +154,14 @@ router.post('/:id/auditoria-omie', authMiddleware, async (req, res) => {
                 }),
             ]);
             const auditoria = montarAuditoriaOmie({ order, consultaCompra, consultaVenda });
-            const updated = updateOrder(req.params.id, current => ({
+            const updated = await updateOrder(req.params.id, current => ({
                 ...current,
                 auditoria_omie: auditoria,
             }));
             return res.json({ id: updated.id, auditoria_omie: updated.auditoria_omie });
         } catch (error) {
             const auditoria = montarAuditoriaErro(error);
-            const updated = updateOrder(req.params.id, current => ({
+            const updated = await updateOrder(req.params.id, current => ({
                 ...current,
                 auditoria_omie: auditoria,
             }));
@@ -181,7 +179,7 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
         await validarAprovador(usuario, nivel);
 
         let aprovouFluxo = false;
-        const updated = updateOrder(req.params.id, order => {
+        const updated = await updateOrder(req.params.id, order => {
             const aprovacao = ensureAprovacao(order);
             order.aprovacao = registrarDecisao(aprovacao, { nivel, decisao, usuario, motivo });
             aprovouFluxo = order.aprovacao.status === 'aprovado';
@@ -217,7 +215,7 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
                 });
             } catch (error) {
                 syncStatus = 'erro';
-                const syncedError = updateOrder(req.params.id, current => registrarErroSincronizacaoEtapa(current, {
+                const syncedError = await updateOrder(req.params.id, current => registrarErroSincronizacaoEtapa(current, {
                     origem: 'aprovacao.final',
                     etapaLocal: current.aprovacao?.etapaAtual,
                     etapaOmie: etapaOperacional,
@@ -237,7 +235,7 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
             resultadoSync = { skipped: true, reason: 'Pedido VP sem código interno/integrado salvo para sincronizar etapa operacional.' };
         }
 
-        const synced = updateOrder(req.params.id, current => registrarSincronizacaoEtapa(current, {
+        const synced = await updateOrder(req.params.id, current => registrarSincronizacaoEtapa(current, {
             origem: 'aprovacao.final',
             etapaLocal: current.aprovacao?.etapaAtual,
             etapaOmie: etapaOperacional,
@@ -291,5 +289,3 @@ router.post('/:id/confirmar-entrega', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
-module.exports.ORDERS_FILE = ORDERS_FILE;
-module.exports.readOrders = readOrders;

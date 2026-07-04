@@ -1,5 +1,5 @@
 const omieClient = require('./omieClient');
-const { readOrders, updateOrder } = require('./orderStore');
+const { findOrder, updateOrder } = require('./orderStore');
 const { validarPlanoPagamentoSalvo } = require('./paymentPlan');
 const { etapaVendaProdutoVP, registrarSincronizacaoEtapa } = require('./omieStages');
 const { criarFluxoAprovacaoProdutos, confirmarEntrega } = require('./approvalEngine');
@@ -28,8 +28,7 @@ function erro(mensagem, status) {
 // Chamada tanto pelo botão manual (portal, alçada de faturamento) quanto pelo
 // webhook do SAC Pós-Venda 360 (confirmação automática de entrega física).
 async function confirmarEntregaPedido(orderId, { origem = 'manual_portal', detalhe = null } = {}) {
-    const orders = readOrders();
-    const order = orders.find(item => item.id === orderId);
+    const order = await findOrder(orderId);
     if (!order) throw erro('Pedido não encontrado.', 404);
 
     const aprovacao = ensureAprovacao(order);
@@ -53,7 +52,7 @@ async function confirmarEntregaPedido(orderId, { origem = 'manual_portal', detal
 
     const omie = await omieClient.marcarPedidoVendaVPParaFaturar({ codigoPedido, codigoPedidoIntegracao });
 
-    const updated = updateOrder(orderId, current => {
+    const updated = await updateOrder(orderId, current => {
         current.aprovacao = confirmarEntrega(ensureAprovacao(current), { origem, detalhe });
         current = registrarSincronizacaoEtapa(current, {
             origem: origem === 'sac_pv360' ? 'sac.entrega_confirmada' : 'produto.entregue',

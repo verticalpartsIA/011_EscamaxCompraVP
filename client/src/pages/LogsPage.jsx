@@ -3,7 +3,8 @@ import { ScrollText, MessageSquare, Send, Loader2, ChevronDown, ChevronUp } from
 import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
-const EMAIL_DIEGO = 'adm@escamax.com.br';
+// Quem pode abrir indagações: aprovador da alçada máxima (nível 3), vindo do perfil.
+const NIVEL_ALCADA_INDAGADOR = 3;
 
 const ACAO_LABEL = {
     'login.sucesso': 'Login realizado',
@@ -22,7 +23,7 @@ function formatDateBR(value) {
     return d.toLocaleString('pt-BR');
 }
 
-function ObservacaoThread({ log, emailAtual }) {
+function ObservacaoThread({ log, emailAtual, alcadaNivel }) {
     const token = localStorage.getItem('token');
     const [observacoes, setObservacoes] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -42,7 +43,7 @@ function ObservacaoThread({ log, emailAtual }) {
 
     useEffect(() => { carregar(); }, [carregar]);
 
-    const podeIniciar = emailAtual === EMAIL_DIEGO;
+    const podeIniciar = Number(alcadaNivel) === NIVEL_ALCADA_INDAGADOR;
     const jaParticipou = observacoes.some(o => o.autor_email === emailAtual);
     const podeEscrever = observacoes.length === 0 ? podeIniciar : (podeIniciar || jaParticipou);
 
@@ -106,7 +107,7 @@ function ObservacaoThread({ log, emailAtual }) {
                 </div>
             ) : (
                 <p className="text-[11px] text-neutral-400">
-                    Só o Diego pode abrir uma indagação; quem participa da conversa pode responder.
+                    Só o aprovador da alçada máxima pode abrir uma indagação; quem participa da conversa pode responder.
                 </p>
             )}
             {erro && <p className="text-[11px] font-semibold text-danger">{erro}</p>}
@@ -182,7 +183,7 @@ export default function LogsPage() {
                                                 {JSON.stringify(log.detalhes, null, 2)}
                                             </pre>
                                         )}
-                                        <ObservacaoThread log={log} emailAtual={user?.email} />
+                                        <ObservacaoThread log={log} emailAtual={user?.email} alcadaNivel={user?.alcadaNivel} />
                                     </div>
                                 )}
                             </div>

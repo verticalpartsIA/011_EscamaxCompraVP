@@ -732,6 +732,14 @@ exports.atualizarDespesasPedidoCompra = async ({ unidade, nCodPed, nValDesp }) =
     }, unidade);
 };
 
+// ─── excluirPedidoCompra ─────────────────────────────────────────────────────
+// Usado na compensação do checkout: se o Pedido de Venda VP falhar depois da
+// compra já criada na filial, a compra é removida para não gerar contas a
+// pagar sem contrapartida.
+exports.excluirPedidoCompra = async ({ unidade, nCodPed }) => {
+    return await omiePost('produtos/pedidocompra/', 'ExcluirPedCompra', { nCodPed }, unidade);
+};
+
 exports.consultarPedidoCompra = async ({ unidade, numero, codigo, codigoIntegracao }) => {
     const filtros = [];
     if (codigo) filtros.push({ nCodPed: Number(codigo) });

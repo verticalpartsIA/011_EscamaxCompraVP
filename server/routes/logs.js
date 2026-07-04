@@ -7,7 +7,10 @@ const { buscarUsuarioPorEmail, normalizarEmail } = require('../services/usuarios
 
 router.use(authMiddleware);
 
-const EMAIL_DIEGO = 'adm@escamax.com.br';
+// Nível de alçada que pode abrir indagações nos logs (hoje: Diego, nível 3).
+// Vem da tabela `usuarios` — sem e-mail fixo no código: se a diretoria mudar,
+// basta ajustar a alçada na tela Convidar Usuário.
+const NIVEL_ALCADA_INDAGADOR = 3;
 
 // GET /api/logs — lista de auditoria (admin)
 router.get('/', adminMiddleware, async (req, res) => {
@@ -41,13 +44,14 @@ router.post('/:id/observacoes', adminMiddleware, async (req, res) => {
     const emailAtual = normalizarEmail(req.user?.email);
     try {
         const existentes = await listarObservacoes(req.params.id);
-        const isDiego = emailAtual === EMAIL_DIEGO;
+        // adminMiddleware já carregou o perfil em req.usuarioAtual
+        const podeIndagar = Number(req.usuarioAtual?.alcada_nivel) === NIVEL_ALCADA_INDAGADOR;
         const jaParticipou = existentes.some(o => normalizarEmail(o.autor_email) === emailAtual);
 
-        if (existentes.length === 0 && !isDiego) {
-            return res.status(403).json({ error: 'Só o Diego pode abrir uma indagação em um log.' });
+        if (existentes.length === 0 && !podeIndagar) {
+            return res.status(403).json({ error: 'Só o aprovador da alçada máxima pode abrir uma indagação em um log.' });
         }
-        if (existentes.length > 0 && !isDiego && !jaParticipou) {
+        if (existentes.length > 0 && !podeIndagar && !jaParticipou) {
             return res.status(403).json({ error: 'Você não faz parte desta conversa.' });
         }
 

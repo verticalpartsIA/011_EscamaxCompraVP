@@ -9,9 +9,9 @@ const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAu
 const logger = require('../utils/logger');
 const { registrarLog } = require('../services/auditoriaService');
 
-function saveOrder(entry) {
+async function saveOrder(entry) {
     try {
-        appendOrder(entry);
+        await appendOrder(entry);
     } catch (e) {
         logger.error(`Erro ao salvar pedido no histórico: ${e.message}`);
     }
@@ -32,7 +32,7 @@ exports.processar = async (req, res) => {
 
     const chaveIdempotencia = String(idempotencyKey || '').trim();
     if (chaveIdempotencia) {
-        const existente = findOrderByIdempotencyKey(chaveIdempotencia);
+        const existente = await findOrderByIdempotencyKey(chaveIdempotencia);
         if (existente) {
             logger.warn(`Checkout idempotente reutilizado: ${chaveIdempotencia} -> ${existente.id}`);
             return res.status(200).json({
@@ -170,7 +170,7 @@ exports.processar = async (req, res) => {
             orderEntry.pedido_compra = { numero: null, status: 'erro', detalhe };
             orderEntry.financeiro.compra = { status: 'erro', detalhe };
             // Salva parcial e retorna erro
-            saveOrder(orderEntry);
+            await saveOrder(orderEntry);
             throw errCompra;
         }
 
@@ -213,7 +213,26 @@ exports.processar = async (req, res) => {
             const detalhe = errVenda.response?.data?.faultstring || errVenda.message;
             orderEntry.pedido_venda = { numero: null, status: 'erro', detalhe };
             orderEntry.financeiro.venda = { status: 'erro', detalhe };
-            saveOrder(orderEntry);
+
+            // Compensação: a compra já foi criada na filial mas a venda VP falhou.
+            // Cancela a compra para não deixar um Pedido de Compra órfão gerando
+            // contas a pagar sem contrapartida. Se o cancelamento também falhar,
+            // fica registrado para reconciliação manual.
+            if (nCodPedCompra) {
+                try {
+                    await omieClient.excluirPedidoCompra({ unidade, nCodPed: nCodPedCompra });
+                    logger.warn(`Compensação: Pedido de Compra ${idCompra} cancelado na ${unidade} após falha na venda VP.`);
+                    orderEntry.pedido_compra.status = 'cancelado_compensacao';
+                    orderEntry.pedido_compra.detalhe = 'Cancelado automaticamente porque o Pedido de Venda VP falhou.';
+                    orderEntry.financeiro.compra = { status: 'cancelado_compensacao', detalhe: orderEntry.pedido_compra.detalhe };
+                } catch (errCancel) {
+                    const detalheCancel = errCancel.response?.data?.faultstring || errCancel.message;
+                    logger.error(`Compensação FALHOU: Pedido de Compra ${idCompra} segue ativo na ${unidade}. Reconciliar manualmente. Motivo: ${detalheCancel}`);
+                    orderEntry.pedido_compra.compensacao = { status: 'falhou', detalhe: detalheCancel, em: new Date().toISOString() };
+                }
+            }
+
+            await saveOrder(orderEntry);
             throw errVenda;
         }
 
@@ -248,7 +267,7 @@ exports.processar = async (req, res) => {
         }
 
         // Tudo OK — persiste
-        saveOrder(orderEntry);
+        await saveOrder(orderEntry);
 
         await registrarLog({
             usuarioEmail: req.user?.email,

@@ -38,7 +38,7 @@ router.post('/entrega-confirmada', async (req, res) => {
         });
     }
 
-    const orders = readOrders();
+    const orders = await readOrders();
     const order = localizarPedido(orders, { codigoPedidoOmie: codigo_pedido_omie, numeroPedidoVenda: numero_pedido_venda });
     if (!order) {
         logger.warn(`[webhooks/sac] pedido não localizado (codigo_pedido_omie=${codigo_pedido_omie}, numero_pedido_venda=${numero_pedido_venda})`);
