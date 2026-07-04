@@ -17,6 +17,10 @@ const ACAO_LABEL = {
     'usuario.convidado': 'Usuário convidado',
     'whatsapp.aviso_enviado': 'Aviso de aprovação enviado (WhatsApp)',
     'whatsapp.aviso_falhou': '⚠️ Aviso de aprovação FALHOU (WhatsApp)',
+    'whatsapp.aviso_diego_enviado': 'Aviso de acompanhamento enviado ao Diego (WhatsApp)',
+    'whatsapp.aviso_diego_falhou': '⚠️ Aviso de acompanhamento ao Diego FALHOU (WhatsApp)',
+    'pedido.criado_omie': 'Pedido criado no Omie (pós-aprovação)',
+    'pedido.erro_criacao_omie': '⚠️ Falha ao criar pedido no Omie (pós-aprovação)',
 };
 
 function formatDateBR(value) {

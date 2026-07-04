@@ -79,4 +79,26 @@ async function avisarNovaAprovacao({ nivel, orderId, unidade, valorTotal }) {
     return resultado;
 }
 
-module.exports = { enviarWhatsapp, avisarNovaAprovacao, linkPortal };
+// Aviso de acompanhamento para o Diego (alçada máxima) sempre que Gustavo ou Michel
+// aprovarem uma etapa de um pedido — independente de o fluxo já ter terminado ou de o
+// próprio Diego ser o próximo aprovador da fila (esse último caso já recebe o aviso de
+// avisarNovaAprovacao em separado).
+async function avisarAprovacaoParaDiego({ nivel, orderId, unidade, valorTotal, aprovadoPor }) {
+    const numero = process.env.WHATSAPP_FONE_DIEGO;
+    const papel = papelPorNivel(nivel);
+    const texto = [
+        `👀 *Portal Escamax* — acompanhamento de aprovação`,
+        `${papel} (${aprovadoPor || '-'}) acaba de aprovar uma etapa de compra.`,
+        `Unidade: ${unidade || '-'}`,
+        `Pedido: ${orderId}`,
+        `Valor: R$ ${Number(valorTotal || 0).toFixed(2)}`,
+        linkPortal(),
+    ].join('\n');
+    const resultado = await enviarWhatsapp(numero, texto);
+    if (!resultado.ok) {
+        logger.warn(`[whatsapp] Aviso de acompanhamento para Diego (nível ${nivel}, pedido ${orderId}) não enviado: ${resultado.error}`);
+    }
+    return resultado;
+}
+
+module.exports = { enviarWhatsapp, avisarNovaAprovacao, avisarAprovacaoParaDiego, linkPortal };

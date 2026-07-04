@@ -3,10 +3,7 @@ const { normalizarPlanoPagamento } = require('../services/paymentPlan');
 const { criarFluxoAprovacaoProdutos } = require('../services/approvalEngine');
 const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
 const { appendOrder, findOrderByIdempotencyKey } = require('../services/orderStore');
-const { criarRegistroContasPagarEscamax } = require('../services/financialTrace');
 const { cnpjFiliais, calcularTotalCarrinho, validarCheckoutPreflight } = require('../services/checkoutPreflight');
-const { etapaVendaProdutoVP } = require('../services/omieStages');
-const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
 const logger = require('../utils/logger');
 const { registrarLog } = require('../services/auditoriaService');
 
@@ -105,6 +102,11 @@ exports.processar = async (req, res) => {
         pagamentoDesc || null,
     ].filter(Boolean).join(' | ');
 
+    const cleanCnpjEscamax = cnpjFiliais()[unidade] || null;
+    if (!cleanCnpjEscamax) {
+        return res.status(400).json({ error: `Unidade "${unidade}" não configurada. Verifique o CNPJ no .env.` });
+    }
+
     const orderEntry = {
         id: `ESC-${Date.now()}`,
         idempotencyKey: chaveIdempotencia || null,
@@ -118,156 +120,23 @@ exports.processar = async (req, res) => {
         prioridade: prioridade || null,
         pagamento: pagamento || null,
         planoPagamento,
+        observacoesOmie: observacoes,
         aprovacao,
+        // O Pedido de Compra (filial) e o Pedido de Venda (VP) só são criados de fato no
+        // Omie quando o fluxo de aprovação for concluído (ver POST /:id/aprovacao/decisao em
+        // routes/orders.js) — assim um pedido reprovado nunca chega a existir nas duas
+        // contabilidades, e a mercadoria não fica disponível para separação antes da aprovação.
         financeiro: {
-            compra: { status: 'pendente', detalhe: 'Aguardando criação do Pedido de Compra na filial Escamax.' },
-            venda: { status: 'pendente', detalhe: 'Aguardando criação do Pedido de Venda na VerticalParts.' },
+            compra: { status: 'pendente', detalhe: 'Aguardando aprovação do fluxo para criar o Pedido de Compra na filial Escamax.' },
+            venda: { status: 'pendente', detalhe: 'Aguardando aprovação do fluxo para criar o Pedido de Venda na VerticalParts.' },
         },
         pedido_compra: { numero: null, status: 'pendente', detalhe: null },
         pedido_venda: { numero: null, status: 'pendente', detalhe: null },
     };
 
     try {
-        const cleanCnpjVP = (process.env.CNPJ_VP || '15.822.325/0001-27').replace(/\D/g, '');
-        const cleanCnpjEscamax = cnpjFiliais()[unidade] || null;
+        logger.info(`Checkout B2B recebido: ${unidade} -> aguardando aprovação antes de criar no Omie`);
 
-        if (!cleanCnpjEscamax) {
-            return res.status(400).json({ error: `Unidade "${unidade}" não configurada. Verifique o CNPJ no .env.` });
-        }
-
-        logger.info(`Iniciando Checkout B2B: ${unidade} -> VerticalParts (CNPJs limpos)`);
-
-        // 1. Criar Requisição de Compra na Escamax
-        let idCompra = null;
-        let nCodPedCompra = null;
-        try {
-            const resCompra = await omieClient.incluirRequisicaoCompra({
-                unidade,
-                cnpjFornecedor: cleanCnpjVP,
-                itens,
-                tipoFrete: tipoFrete || '9',
-                observacoes,
-                finalidade: finalidade || 'Revenda',
-                planoPagamento,
-            });
-            idCompra = resCompra.cNumero || resCompra.nCodPed;
-            nCodPedCompra = resCompra.nCodPed || null;
-            logger.info(`Requisição de Compra criada na ${unidade}: ${idCompra} (ID: ${nCodPedCompra})`);
-            orderEntry.pedido_compra = {
-                numero: idCompra,
-                codigo: nCodPedCompra,
-                codigo_integracao: resCompra.cCodIntPed || resCompra.codigo_pedido_integracao || null,
-                status: 'ok',
-                detalhe: null,
-            };
-            orderEntry.financeiro.compra = criarRegistroContasPagarEscamax({
-                unidade,
-                pedidoCompra: orderEntry.pedido_compra,
-                planoPagamento,
-                totalPedido: totalCarrinho,
-            });
-        } catch (errCompra) {
-            const detalhe = errCompra.response?.data?.faultstring || errCompra.message;
-            orderEntry.pedido_compra = { numero: null, status: 'erro', detalhe };
-            orderEntry.financeiro.compra = { status: 'erro', detalhe };
-            // Salva parcial e retorna erro
-            await saveOrder(orderEntry);
-            throw errCompra;
-        }
-
-        // 2. Criar Pedido de Venda na VerticalParts
-        let idVenda = null;
-        let valorIpi = 0;
-        try {
-            const resVenda = await omieClient.incluirPedidoVenda({
-                cnpjCliente: cleanCnpjEscamax,
-                itens,
-                numeroPedidoCliente: idCompra,
-                observacoes,
-                planoPagamento,
-            });
-            idVenda = resVenda.numero_pedido || resVenda.codigo_pedido_omie;
-            valorIpi = resVenda.valorIpi || 0;
-            const etapaInicialVP = etapaVendaProdutoVP('SEPARAR_ESTOQUE');
-            logger.info(`Pedido de Venda criado na VerticalParts: ${idVenda} | IPI: R$${valorIpi.toFixed(2)}`);
-            orderEntry.pedido_venda = {
-                numero: idVenda,
-                codigo: resVenda.codigo_pedido_omie || resVenda.codigo_pedido || null,
-                codigo_integracao: resVenda.codigo_pedido_integracao || null,
-                etapa: etapaInicialVP.codigo,
-                etapa_label: etapaInicialVP.label,
-                status: 'ok',
-                detalhe: null,
-            };
-            orderEntry.financeiro.venda = {
-                status: 'pedido_venda_criado',
-                origem: 'Omie VerticalParts',
-                pedidoVendaNumero: idVenda,
-                pedidoVendaCodigo: orderEntry.pedido_venda.codigo,
-                pedidoVendaIntegracao: orderEntry.pedido_venda.codigo_integracao,
-                total: planoPagamento.total,
-                qtdeParcelas: planoPagamento.qtdeParcelas,
-                criadoEm: new Date().toISOString(),
-                observacao: 'Pedido de Venda VP criado com o mesmo plano financeiro usado no Pedido de Compra Escamax.',
-            };
-        } catch (errVenda) {
-            const detalhe = errVenda.response?.data?.faultstring || errVenda.message;
-            orderEntry.pedido_venda = { numero: null, status: 'erro', detalhe };
-            orderEntry.financeiro.venda = { status: 'erro', detalhe };
-
-            // Compensação: a compra já foi criada na filial mas a venda VP falhou.
-            // Cancela a compra para não deixar um Pedido de Compra órfão gerando
-            // contas a pagar sem contrapartida. Se o cancelamento também falhar,
-            // fica registrado para reconciliação manual.
-            if (nCodPedCompra) {
-                try {
-                    await omieClient.excluirPedidoCompra({ unidade, nCodPed: nCodPedCompra });
-                    logger.warn(`Compensação: Pedido de Compra ${idCompra} cancelado na ${unidade} após falha na venda VP.`);
-                    orderEntry.pedido_compra.status = 'cancelado_compensacao';
-                    orderEntry.pedido_compra.detalhe = 'Cancelado automaticamente porque o Pedido de Venda VP falhou.';
-                    orderEntry.financeiro.compra = { status: 'cancelado_compensacao', detalhe: orderEntry.pedido_compra.detalhe };
-                } catch (errCancel) {
-                    const detalheCancel = errCancel.response?.data?.faultstring || errCancel.message;
-                    logger.error(`Compensação FALHOU: Pedido de Compra ${idCompra} segue ativo na ${unidade}. Reconciliar manualmente. Motivo: ${detalheCancel}`);
-                    orderEntry.pedido_compra.compensacao = { status: 'falhou', detalhe: detalheCancel, em: new Date().toISOString() };
-                }
-            }
-
-            await saveOrder(orderEntry);
-            throw errVenda;
-        }
-
-        // 3. Se há IPI na Proposta Comercial, atualizar o Pedido de Compra com esse valor
-        if (valorIpi > 0 && nCodPedCompra) {
-            try {
-                await omieClient.atualizarDespesasPedidoCompra({ unidade, nCodPed: nCodPedCompra, nValDesp: valorIpi });
-                logger.info(`IPI R$${valorIpi.toFixed(2)} adicionado ao Pedido de Compra ${idCompra}`);
-            } catch (e) {
-                logger.warn(`Não foi possível atualizar IPI no Pedido de Compra: ${e.message}`);
-            }
-        }
-
-        try {
-            const [consultaCompra, consultaVenda] = await Promise.all([
-                omieClient.consultarPedidoCompra({
-                    unidade,
-                    numero: orderEntry.pedido_compra.numero,
-                    codigo: orderEntry.pedido_compra.codigo,
-                    codigoIntegracao: orderEntry.pedido_compra.codigo_integracao,
-                }),
-                omieClient.consultarPedidoVendaVP({
-                    codigoPedido: orderEntry.pedido_venda.codigo,
-                    codigoPedidoIntegracao: orderEntry.pedido_venda.codigo_integracao,
-                }),
-            ]);
-            orderEntry.auditoria_omie = montarAuditoriaOmie({ order: orderEntry, consultaCompra, consultaVenda });
-            logger.info(`Auditoria Omie concluída para ${orderEntry.id}: ${orderEntry.auditoria_omie.status}`);
-        } catch (error) {
-            orderEntry.auditoria_omie = montarAuditoriaErro(error);
-            logger.warn(`Auditoria Omie pendente para ${orderEntry.id}: ${orderEntry.auditoria_omie.detalhe}`);
-        }
-
-        // Tudo OK — persiste
         await saveOrder(orderEntry);
 
         avisarNovaAprovacao({
@@ -290,9 +159,8 @@ exports.processar = async (req, res) => {
         });
 
         return res.json({
-            message: 'Pedidos criados com sucesso!',
-            pedido_compra: idCompra,
-            pedido_venda: idVenda,
+            message: 'Pedido enviado para aprovação! Assim que aprovado, ele será criado no Omie automaticamente.',
+            orderId: orderEntry.id,
             pagamento: {
                 qtdeParcelas: planoPagamento.qtdeParcelas,
                 total: planoPagamento.total,
@@ -301,14 +169,9 @@ exports.processar = async (req, res) => {
 
     } catch (error) {
         logger.error(`Erro no processarCheckout: ${error.message}`);
-        if (error.response?.data) {
-            logger.error(`Detalhe Omie: ${JSON.stringify(error.response.data)}`);
-        }
         res.status(500).json({
-            error: 'Erro ao processar integração B2B entre as contas Omie.',
+            error: 'Erro ao registrar o pedido para aprovação.',
             detail: error.message,
-            omieDetail: error.response?.data,
-            failedUrl: error.config?.url
         });
     }
 };

@@ -131,9 +131,19 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                 </div>
             )}
 
+            {aprovacao.status === 'aprovado' && order.pedido_venda?.status === 'erro' && (
+                <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-danger">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>
+                        Aprovado, mas a criação no Omie falhou: {order.pedido_venda?.detalhe || order.pedido_compra?.detalhe || 'erro não detalhado'}.
+                        Precisa de revisão manual antes de seguir.
+                    </span>
+                </div>
+            )}
+
             {/* Status do faturamento — somente leitura. A VerticalParts é quem decide quando
                 faturar, no ato da entrega (SAC Pós-Venda 360); a Escamax não confirma nada aqui. */}
-            {aprovacao.status === 'aprovado' && (
+            {aprovacao.status === 'aprovado' && order.pedido_venda?.status === 'ok' && (
                 order.financeiro?.notificado ? (
                     <div className="mt-4 flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-800">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
@@ -255,9 +265,11 @@ export default function AprovacoesPage() {
     useEffect(() => { carregar(); }, [carregar]);
 
     const visiveis = useMemo(() => {
-        return orders
-            .filter(order => order.pedido_compra?.status === 'ok' && order.pedido_venda?.status === 'ok')
-            .slice(0, 80);
+        // Pedidos aguardando decisão ainda não existem no Omie (só são criados lá após a
+        // aprovação final — ver server/services/pedidoOmieService.js), então não dá mais
+        // para filtrar por pedido_compra/pedido_venda "ok" como antes. Mostra tudo,
+        // do mais recente para o mais antigo (já vem ordenado assim da API).
+        return orders.slice(0, 80);
     }, [orders]);
 
     const agir = async (order, type, motivo, options = {}) => {

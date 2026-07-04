@@ -527,7 +527,7 @@ export default function CartSidebar({ isOpen, onClose, cart, updateQuantity, rem
                             <div className="bg-green-50 border border-green-200 text-green-700 p-4 rounded flex items-center gap-3">
                                 <CheckCircle size={20} />
                                 <span className="text-sm font-bold">
-                                    Requisição e Pedido criados no Omie{preflight?.planoPagamento?.qtdeParcelas ? ` · ${preflight.planoPagamento.qtdeParcelas} parcela(s) validadas` : ''}!
+                                    Pedido enviado para aprovação{preflight?.planoPagamento?.qtdeParcelas ? ` · ${preflight.planoPagamento.qtdeParcelas} parcela(s) validadas` : ''}!
                                 </span>
                             </div>
                         ) : checkoutStatus === 'error' ? (

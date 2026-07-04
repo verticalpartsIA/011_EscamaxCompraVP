@@ -8,7 +8,8 @@ const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincroniz
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
 const { confirmarEntregaPedido } = require('../services/deliveryConfirmation');
 const { registrarLog } = require('../services/auditoriaService');
-const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
+const { avisarNovaAprovacao, avisarAprovacaoParaDiego } = require('../services/whatsappNotifier');
+const { criarPedidosOmie } = require('../services/pedidoOmieService');
 const logger = require('../utils/logger');
 const {
     criarFluxoAprovacaoProdutos,
@@ -190,14 +191,16 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
 
         if (!updated) return res.status(404).json({ error: 'Pedido não encontrado.' });
 
+        const decisaoNormalizada = String(decisao).toLowerCase();
+
         await registrarLog({
             usuarioEmail: usuario,
-            acao: String(decisao).toLowerCase() === 'reprovar' ? 'pedido.reprovado' : 'pedido.alcada_aprovada',
+            acao: decisaoNormalizada === 'reprovar' ? 'pedido.reprovado' : 'pedido.alcada_aprovada',
             detalhes: { nivel, motivo },
             pedidoId: req.params.id,
         });
 
-        if (String(decisao).toLowerCase() === 'aprovar' && !aprovouFluxo && updated.aprovacao?.alcadaAtual) {
+        if (decisaoNormalizada === 'aprovar' && !aprovouFluxo && updated.aprovacao?.alcadaAtual) {
             avisarNovaAprovacao({
                 nivel: updated.aprovacao.alcadaAtual,
                 orderId: updated.id,
@@ -211,18 +214,94 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
             })).catch(e => logger.warn(`[whatsapp] Falha ao avisar próxima alçada do pedido ${updated.id}: ${e.message}`));
         }
 
-        if (!aprovouFluxo || updated.pedido_venda?.status !== 'ok') {
+        // Aviso de acompanhamento para o Diego: ele deve saber sempre que Gustavo (nível 1)
+        // ou Michel (nível 2) aprovar uma etapa — independente de ele já ser o próximo da
+        // fila (nesse caso recebe os dois avisos, com textos diferentes) ou de o fluxo
+        // já estar totalmente concluído.
+        if (decisaoNormalizada === 'aprovar' && Number(nivel) !== 3) {
+            avisarAprovacaoParaDiego({
+                nivel: Number(nivel),
+                orderId: updated.id,
+                unidade: updated.unidade,
+                valorTotal: calcularValorPedido(updated),
+                aprovadoPor: usuario,
+            }).then(resultado => registrarLog({
+                usuarioEmail: 'sistema',
+                acao: resultado.ok ? 'whatsapp.aviso_diego_enviado' : 'whatsapp.aviso_diego_falhou',
+                detalhes: { nivel: Number(nivel), erro: resultado.error || null },
+                pedidoId: updated.id,
+            })).catch(e => logger.warn(`[whatsapp] Falha ao avisar Diego sobre aprovação do pedido ${updated.id}: ${e.message}`));
+        }
+
+        if (!aprovouFluxo) {
             return res.json({ id: updated.id, aprovacao: updated.aprovacao });
+        }
+
+        // Fluxo totalmente aprovado agora: é este o gatilho para criar de fato o Pedido de
+        // Compra (filial) e o Pedido de Venda (VP) no Omie — antes disso o pedido só existia
+        // no portal/Supabase, para não sujar as duas contabilidades com pedidos reprovados.
+        let comOmie = updated;
+        if (comOmie.pedido_venda?.status !== 'ok') {
+            try {
+                const resultadoOmie = await criarPedidosOmie({
+                    unidade: updated.unidade,
+                    itens: updated.itens,
+                    tipoFrete: updated.tipoFrete,
+                    observacoes: updated.observacoesOmie,
+                    finalidade: updated.finalidade,
+                    planoPagamento: updated.planoPagamento,
+                    totalCarrinho: calcularValorPedido(updated),
+                });
+                comOmie = await updateOrder(req.params.id, current => ({
+                    ...current,
+                    pedido_compra: resultadoOmie.pedido_compra,
+                    pedido_venda: resultadoOmie.pedido_venda,
+                    financeiro: resultadoOmie.financeiro,
+                    auditoria_omie: resultadoOmie.auditoria_omie,
+                }));
+                await registrarLog({
+                    usuarioEmail: 'sistema',
+                    acao: 'pedido.criado_omie',
+                    detalhes: { unidade: updated.unidade },
+                    pedidoId: updated.id,
+                });
+            } catch (errOmie) {
+                const parcial = errOmie.pedidoOmieParcial;
+                const comFalha = await updateOrder(req.params.id, current => ({
+                    ...current,
+                    pedido_compra: parcial?.pedido_compra || current.pedido_compra,
+                    pedido_venda: parcial?.pedido_venda || current.pedido_venda,
+                    financeiro: parcial?.financeiro || current.financeiro,
+                }));
+                logger.error(`Falha ao criar pedidos no Omie após aprovação final de ${updated.id}: ${errOmie.message}`);
+                await registrarLog({
+                    usuarioEmail: 'sistema',
+                    acao: 'pedido.erro_criacao_omie',
+                    detalhes: { unidade: updated.unidade, erro: errOmie.message },
+                    pedidoId: updated.id,
+                });
+                return res.status(202).json({
+                    id: comFalha.id,
+                    aprovacao: comFalha.aprovacao,
+                    pedido_compra: comFalha.pedido_compra,
+                    pedido_venda: comFalha.pedido_venda,
+                    erro_omie: errOmie.message,
+                });
+            }
+        }
+
+        if (comOmie.pedido_venda?.status !== 'ok') {
+            return res.json({ id: comOmie.id, aprovacao: comOmie.aprovacao, pedido_venda: comOmie.pedido_venda });
         }
 
         const etapaOperacional = etapaVendaProdutoVP('SEPARAR_ESTOQUE');
         let resultadoSync = { skipped: true, reason: 'Pedido VP já criado na etapa operacional de separação.' };
 
-        const codigoPedido = updated.pedido_venda?.codigo;
-        const codigoPedidoIntegracao = updated.pedido_venda?.codigo_integracao;
+        const codigoPedido = comOmie.pedido_venda?.codigo;
+        const codigoPedidoIntegracao = comOmie.pedido_venda?.codigo_integracao;
         let syncStatus = 'ok';
 
-        if (updated.pedido_venda?.etapa !== etapaOperacional.codigo && (codigoPedido || codigoPedidoIntegracao)) {
+        if (comOmie.pedido_venda?.etapa !== etapaOperacional.codigo && (codigoPedido || codigoPedidoIntegracao)) {
             try {
                 resultadoSync = await omieClient.trocarEtapaPedidoVendaVP({
                     codigoPedido,
