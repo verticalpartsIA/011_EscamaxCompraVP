@@ -41,7 +41,17 @@ const codigoFilial = (codigoVP) => {
     return codigoVP.replace(/^VP/i, 'FORESC');
 };
 
-async function omiePost(endpoint, call, param, unidade = 'VP') {
+// A Omie limita chamadas consecutivas pela mesma app_key ("Consumo redundante
+// detectado. Aguarde N segundos..."). Extrai o N segundos da própria mensagem
+// de erro para saber exatamente quanto esperar antes de tentar de novo.
+function segundosDeEsperaRedundante(faultstring) {
+    const m = /[Aa]guarde\s+(\d+)\s+segundos?/.exec(faultstring || '');
+    return m ? Math.max(1, Number(m[1])) : null;
+}
+
+const MAX_TENTATIVAS_REDUNDANTE = 4;
+
+async function omiePost(endpoint, call, param, unidade = 'VP', _tentativa = 1) {
     const { key, secret } = ACQUIRE_KEYS(unidade);
 
     // Constrói a URL final de forma absoluta e segura
@@ -69,7 +79,16 @@ async function omiePost(endpoint, call, param, unidade = 'VP') {
         return data;
     } catch (err) {
         const status = err.response?.status || 'desconhecido';
+        const faultstring = err.response?.data?.faultstring || '';
         const errorData = err.response?.data ? JSON.stringify(err.response.data) : 'Sem dados';
+
+        const espera = segundosDeEsperaRedundante(faultstring);
+        if (espera !== null && _tentativa <= MAX_TENTATIVAS_REDUNDANTE) {
+            logger.warn(`[Omie Redundante] ${unidade} - ${call}: aguardando ${espera}s antes de tentar de novo (tentativa ${_tentativa}/${MAX_TENTATIVAS_REDUNDANTE}).`);
+            await new Promise(resolve => setTimeout(resolve, espera * 1000));
+            return omiePost(endpoint, call, param, unidade, _tentativa + 1);
+        }
+
         logger.error(`[Omie Error] ${unidade} - ${call}: Status ${status} | Erro: ${err.message}`);
         console.error(`[BACKEND ERROR] Omie Call Failed: ${call} | Status: ${status} | Error: ${err.message}`);
         console.error(`[BACKEND ERROR] Details: ${errorData}`);

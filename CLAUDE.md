@@ -32,11 +32,14 @@
 
 ## O que já está implementado ✅
 
-### Autenticação
-- Flow: email → código OTP (enviado via Resend, mas sem chave configurada ainda)
-- Backdoor: código `123456` sempre funciona em dev
-- Emails autorizados: `adm@escamax.com.br`, `tiverticalparts@gmail.com`, `gelson.simoes@verticalparts.com.br`
-- Após login → tela de seleção de filial → portal
+### Autenticação (reescrita em 03–04/07/2026 — NÃO é mais OTP)
+- Flow: e-mail + **senha** via **Supabase Auth** (`server/services/usuariosService.js`) — sem OTP, sem backdoor `123456` (removido).
+- Login só funciona para quem tem perfil **ativo** na tabela `usuarios` (Supabase), não basta ter conta no Auth.
+- Acesso só para domínios `@escamax.com.br` e `@verticalparts.com.br`, liberado por **convite** (tela `/usuarios/convidar`, admin-only) — envia e-mail via Supabase Auth (SMTP Hostinger `suporte@vpsistema.com`).
+- Aceite do convite/redefinição de senha: `/aceitar-convite?token_hash=...&type=...` — o token é trocado por sessão via `supabase.auth.verifyOtp()` no **JavaScript da página**, de propósito (não no link direto do e-mail), para não ser consumido por scanners de segurança corporativos (ex.: Microsoft Safe Links) que pré-visitam links antes do usuário clicar.
+- **Alçadas de aprovação são nominais**, não mais por variável de ambiente: Gustavo (nível 1, até R$3.000), Michel (nível 2, até R$5.000), Diego/`adm@escamax.com.br` (nível 3, acima disso) — tudo na tabela `usuarios` (`alcada_nivel`, `is_admin`).
+- Justificativa é **obrigatória para aprovar E reprovar** (antes só reprovar exigia).
+- Após login → tela de seleção de filial → portal (isso não mudou).
 
 ### Seleção de Filial
 - Página `/selecionar-filial` com 5 cards (uma por filial Escamax)
@@ -62,6 +65,33 @@
 - `server/services/omieClient.js` — toda a lógica de chamada à Omie (VP + filiais)
 - Inclui: busca de produto por código, clone de produto para filial, IPI, contas correntes
 - Chaves lidas do `.env` por variável de ambiente (ver seção Credenciais abaixo)
+- `omiePost()` tem retry automático quando a Omie responde "Consumo redundante detectado" — extrai o
+  "aguarde N segundos" da própria mensagem de erro e tenta de novo (até 4x) antes de propagar o erro
+
+### Persistência de pedidos (migrado em 04/07/2026 — NÃO é mais `data/orders.json`)
+- `server/services/orderStore.js` agora lê/escreve na tabela `pedidos` do Supabase (schema: `id`, `criado_em`,
+  `unidade`, `idempotency_key`, `versao`, `dados` jsonb). O objeto completo do pedido vive em `dados`.
+- Concorrência otimista via `versao`: `updateOrder()` relê e reaplica automaticamente (até 3x) se outro
+  processo gravou no meio do caminho — dois updates simultâneos no mesmo pedido não se sobrescrevem mais.
+- Migração histórica em `server/migrations/002_migrar_orders_json.js` (idempotente, já rodada 1x).
+- **Compensação no checkout**: se o Pedido de Venda VP falhar depois da compra já criada na filial, o sistema
+  cancela a compra automaticamente (`omieClient.excluirPedidoCompra`) para não deixar contas a pagar órfãs.
+  Se a própria compensação falhar, fica marcado em `pedido_compra.compensacao` para reconciliação manual.
+
+### Logs de auditoria e indagação (04/07/2026)
+- Tabela `logs_auditoria` no Supabase registra login, criação de pedido, decisão de alçada, entrega confirmada,
+  convite de usuário e envio (ou falha) do aviso de WhatsApp.
+- Página `/logs` (admin-only): cada log pode ter uma thread de observação (`log_observacoes`) — só quem tem
+  `alcada_nivel = 3` (hoje, Diego) pode **abrir** uma indagação; depois de aberta, qualquer participante da
+  conversa pode responder (réplica/tréplica), sem e-mail fixo hardcoded no código.
+
+### Backend em produção (Hostinger, cPanel/Passenger)
+- Deploy do **frontend** é automático via GitHub → Hostinger (Vite build, `client/` como raiz).
+- Deploy do **backend** é manual: `~/domains/escamaxcompravp.vpsistema.com/nodejs/` na VPS compartilhada
+  (`76.13.95.90:65002`, usuário `u969661049`), rodando via Phusion Passenger com `PassengerBaseURI /api`
+  (ver `public_html/.htaccess`). Atualizar: `git pull && npm install && touch tmp/restart.txt` na pasta `nodejs/`.
+- Health check em produção é `GET /api/health` (não `/health` — o Passenger só roteia `/api/*` para o Node;
+  qualquer outra coisa cai no fallback estático do SPA).
 
 ### Avisos WhatsApp de aprovação (04/07/2026)
 - `server/services/whatsappNotifier.js` — aviso UNIDIRECIONAL (site → WhatsApp), sem interação/resposta.
@@ -99,7 +129,10 @@
    - MCP Supabase autenticado mas ferramenta `deploy_edge_function` ainda retorna "no permission"
    - Alternativa: usar o Supabase Dashboard para criar a Edge Function manualmente
 
-6. **Merge PR para main** — branch atual: `feat/reskin-verticalparts`
+6. **Merge PR para main** — branch atual: `feat/reskin-verticalparts` (PR aberto, ver seção Branch atual)
+6.1. **Migrar segredos do `.env` para o Cofre Central de Credenciais** — já existe o papel `svc_escamax`
+   provisionado (Supabase Vault, projeto `vpsistema`, doc em `verticalpartsIA/001_vpsistema` →
+   `Instruções/COFRE_CREDENCIAIS.md`), mas o backend ainda lê tudo direto de `process.env`.
 
 ### Prioridade Baixa
 7. **Rotacionar GitHub token** — token antigo foi exposto em conversa de chat e revogado; novo token salvo em `credenciais.md`
@@ -143,23 +176,36 @@ server/
   .env                          ← credenciais (git-ignored)
   server.js                     ← entry point, rotas, cron
   controllers/
-    authController.js           ← OTP, backdoor 123456, emails autorizados
-    checkoutController.js       ← orquestra dual-Omie (compra + venda)
+    authController.js           ← login e-mail+senha via Supabase Auth
+    checkoutController.js       ← orquestra dual-Omie (compra + venda) + compensação
   services/
-    omieClient.js               ← toda a lógica de chamada à Omie API
-    omieVPSync.js               ← sync ListarProdutos → Supabase omie_produtos
+    omieClient.js               ← toda a lógica de chamada à Omie API (com retry redundante)
+    omieVPSync.js                ← sync ListarProdutos → Supabase omie_produtos
+    orderStore.js                ← pedidos no Supabase (tabela `pedidos`, concorrência otimista)
+    usuariosService.js           ← convite, autenticação, papéis (tabela `usuarios`)
+    auditoriaService.js          ← logs_auditoria + log_observacoes
+    whatsappNotifier.js           ← aviso de aprovação via WhatsApp (Evolution/pv360)
   routes/
     produtosVP.js               ← POST /api/produtos-vp/sync
     checkout.js                 ← POST /api/checkout/processar
+    usuarios.js                  ← convite de usuários (admin-only)
+    logs.js                      ← logs de auditoria + observações (admin-only)
+  migrations/
+    002_migrar_orders_json.js    ← migração única orders.json → tabela pedidos (já rodada)
+
+tools/omie-diagnostico/          ← scripts avulsos de investigação da API Omie (histórico, não é código de produção)
 
 client/src/
   context/AuthContext.jsx       ← auth + filial selecionada
   pages/
     FilialSelectPage.jsx        ← tela de seleção de filial (pós-login)
     ProdutosVPPage.jsx          ← catálogo VP (lê Supabase)
-    LoginPage.jsx               ← email + OTP
+    LoginPage.jsx               ← e-mail + senha
+    AceitarConvitePage.jsx       ← criação de senha após convite/redefinição
+    ConvidarUsuarioPage.jsx      ← convite de usuário (admin-only)
+    LogsPage.jsx                  ← logs de auditoria + thread de observação (admin-only)
   components/
-    Sidebar.jsx                 ← nav + indicador de filial ativa
+    Sidebar.jsx                 ← nav + indicador de filial ativa (Logs/Convidar só para admin)
     CartSidebar.jsx             ← carrinho + checkout (filial do contexto)
 
 credenciais.md                  ← SEGREDO — git-ignored
@@ -179,7 +225,7 @@ cd server && node server.js        # porta 3000
 cd client && npm run dev           # porta 5173
 ```
 
-Login: `gelson.simoes@verticalparts.com.br` + código `123456`
+Login: e-mail + senha de um usuário já convidado (ver tabela `usuarios` no Supabase). Não há mais backdoor.
 
 ---
 
@@ -189,4 +235,6 @@ Login: `gelson.simoes@verticalparts.com.br` + código `123456`
 feat/reskin-verticalparts
 ```
 
-PR pendente de merge para `main`.
+Todas as features relevantes (reskin, aprovação por alçadas, auth por senha, aviso WhatsApp) estão nessa
+branch, nunca mergeada para `main` — `main` está bem defasada em relação ao que roda em produção. PR aberto
+para revisão/merge.

@@ -275,7 +275,12 @@ exports.processar = async (req, res) => {
             orderId: orderEntry.id,
             unidade,
             valorTotal: totalCarrinho,
-        }).catch(e => logger.warn(`[whatsapp] Falha ao avisar 1ª alçada do pedido ${orderEntry.id}: ${e.message}`));
+        }).then(resultado => registrarLog({
+            usuarioEmail: 'sistema',
+            acao: resultado.ok ? 'whatsapp.aviso_enviado' : 'whatsapp.aviso_falhou',
+            detalhes: { nivel: aprovacao.alcadas[0].nivel, erro: resultado.error || null },
+            pedidoId: orderEntry.id,
+        })).catch(e => logger.warn(`[whatsapp] Falha ao avisar 1ª alçada do pedido ${orderEntry.id}: ${e.message}`));
 
         await registrarLog({
             usuarioEmail: req.user?.email,

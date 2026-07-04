@@ -47,8 +47,10 @@ app.use('/api/compras-historico', comprasHistoricoRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/logs', logsRoutes);
 
-// Health Check
-app.get('/health', (req, res) => {
+// Health Check — em produção o Passenger só roteia /api/* para este processo
+// (ver public_html/.htaccess, PassengerBaseURI /api), então precisa viver
+// sob /api para ser alcançável de fora.
+app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
 });
 

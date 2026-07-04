@@ -203,7 +203,12 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
                 orderId: updated.id,
                 unidade: updated.unidade,
                 valorTotal: calcularValorPedido(updated),
-            }).catch(e => logger.warn(`[whatsapp] Falha ao avisar próxima alçada do pedido ${updated.id}: ${e.message}`));
+            }).then(resultado => registrarLog({
+                usuarioEmail: 'sistema',
+                acao: resultado.ok ? 'whatsapp.aviso_enviado' : 'whatsapp.aviso_falhou',
+                detalhes: { nivel: updated.aprovacao.alcadaAtual, erro: resultado.error || null },
+                pedidoId: updated.id,
+            })).catch(e => logger.warn(`[whatsapp] Falha ao avisar próxima alçada do pedido ${updated.id}: ${e.message}`));
         }
 
         if (!aprovouFluxo || updated.pedido_venda?.status !== 'ok') {

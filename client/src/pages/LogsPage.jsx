@@ -15,6 +15,8 @@ const ACAO_LABEL = {
     'pedido.reprovado': 'Pedido reprovado',
     'pedido.entrega_confirmada_manual': 'Entrega confirmada (manual)',
     'usuario.convidado': 'Usuário convidado',
+    'whatsapp.aviso_enviado': 'Aviso de aprovação enviado (WhatsApp)',
+    'whatsapp.aviso_falhou': '⚠️ Aviso de aprovação FALHOU (WhatsApp)',
 };
 
 function formatDateBR(value) {
