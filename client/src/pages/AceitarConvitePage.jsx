@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Lock, ArrowRight, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
-// Página de destino do link de convite enviado por e-mail. O Supabase Auth
-// coloca um token de sessão temporário na URL (hash); o supabase-js já
-// detecta isso automaticamente (detectSessionInUrl). O usuário só precisa
-// criar a senha definitiva aqui.
+// Página de destino do link de convite/redefinição enviado por e-mail.
+//
+// Importante: o link do e-mail aponta para ESTA página (não para o endpoint
+// /auth/v1/verify do Supabase) e leva token_hash+type na query string. A
+// troca do token pela sessão só acontece aqui, via chamada JS (verifyOtp) —
+// de propósito, para não ser "consumida" por scanners de segurança de e-mail
+// corporativo (ex.: Microsoft Safe Links) que pré-visitam links via GET antes
+// do usuário clicar. Como esses scanners não executam JavaScript da página,
+// o token só é validado quando um humano realmente abre o link no navegador.
 export default function AceitarConvitePage() {
     const [senha, setSenha] = useState('');
     const [confirmar, setConfirmar] = useState('');
@@ -16,13 +21,27 @@ export default function AceitarConvitePage() {
     const [email, setEmail] = useState('');
     const [verificando, setVerificando] = useState(true);
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data }) => {
-            setEmail(data?.session?.user?.email || '');
+        const tokenHash = searchParams.get('token_hash');
+        const type = searchParams.get('type') || 'invite';
+
+        if (!tokenHash) {
+            setError('Link inválido: token não encontrado na URL.');
+            setVerificando(false);
+            return;
+        }
+
+        supabase.auth.verifyOtp({ token_hash: tokenHash, type }).then(({ data, error: verifyError }) => {
+            if (verifyError) {
+                setError('Link inválido ou expirado. Peça um novo convite/redefinição ao administrador.');
+            } else {
+                setEmail(data?.session?.user?.email || data?.user?.email || '');
+            }
             setVerificando(false);
         });
-    }, []);
+    }, [searchParams]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -62,6 +81,11 @@ export default function AceitarConvitePage() {
                     <div className="flex items-start gap-2.5 rounded border-l-[3px] border-green-600 bg-green-50 p-4 text-sm text-green-800">
                         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
                         Senha criada com sucesso! Redirecionando para o login...
+                    </div>
+                ) : !email ? (
+                    <div className="flex items-start gap-2.5 rounded border-l-[3px] border-red-600 bg-red-50 p-4 text-sm text-red-700">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                        {error || 'Link inválido ou expirado. Peça um novo convite/redefinição ao administrador.'}
                     </div>
                 ) : (
                     <>
