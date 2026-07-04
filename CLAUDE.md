@@ -63,6 +63,16 @@
 - Inclui: busca de produto por código, clone de produto para filial, IPI, contas correntes
 - Chaves lidas do `.env` por variável de ambiente (ver seção Credenciais abaixo)
 
+### Avisos WhatsApp de aprovação (04/07/2026)
+- `server/services/whatsappNotifier.js` — aviso UNIDIRECIONAL (site → WhatsApp), sem interação/resposta.
+- Reaproveita a mesma instância Evolution já pareada do VP Pós-Venda 360 (`pv360`, mesmo VPS) só como canal de saída.
+- Gatilhos: (1) pedido novo entra em aprovação → avisa a 1ª alçada (Gustavo); (2) alçada aprova e o fluxo
+  avança para o próximo nível → avisa o próximo aprovador (Michel/Diego). Chamado em `checkoutController.js`
+  (após `saveOrder`) e em `routes/orders.js` (`POST /:id/aprovacao/decisao`). Nunca bloqueia a resposta —
+  chamada fire-and-forget com `.catch()`, erro só vira log de warning.
+- Telefones fixos por nível em `.env` (`WHATSAPP_FONE_GUSTAVO/MICHEL/DIEGO`) — não vêm da tabela `usuarios`
+  (ela não tem coluna telefone; os papéis por nível já são fixos e hardcoded em `ALCADAS_PRODUTOS`).
+
 ---
 
 ## O que FALTA fazer ⚠️
@@ -116,6 +126,8 @@
 | `SUPABASE_SERVICE_KEY` | Supabase | Write (sync) |
 | `CNPJ_VP` | — | Localizar VP como fornecedor nas filiais |
 | `CNPJ_BRASILIA` etc. | — | Localizar filial como cliente na VP |
+| `EVOLUTION_URL` / `EVOLUTION_APIKEY` / `EVOLUTION_INSTANCE` | Evolution API (instância `pv360`) | Envio de aviso WhatsApp de aprovação |
+| `WHATSAPP_FONE_GUSTAVO` / `_MICHEL` / `_DIEGO` | — | Telefone (DDI+DDD+número, só dígitos) de cada alçada |
 
 ### Supabase
 - Projeto: `hhgvlcskxopryqvhofsg`

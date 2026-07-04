@@ -1,6 +1,7 @@
 const omieClient = require('../services/omieClient');
 const { normalizarPlanoPagamento } = require('../services/paymentPlan');
 const { criarFluxoAprovacaoProdutos } = require('../services/approvalEngine');
+const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
 const { appendOrder, findOrderByIdempotencyKey } = require('../services/orderStore');
 const { criarRegistroContasPagarEscamax } = require('../services/financialTrace');
 const { cnpjFiliais, calcularTotalCarrinho, validarCheckoutPreflight } = require('../services/checkoutPreflight');
@@ -249,6 +250,13 @@ exports.processar = async (req, res) => {
 
         // Tudo OK — persiste
         saveOrder(orderEntry);
+
+        avisarNovaAprovacao({
+            nivel: aprovacao.alcadas[0].nivel,
+            orderId: orderEntry.id,
+            unidade,
+            valorTotal: totalCarrinho,
+        }).catch(e => logger.warn(`[whatsapp] Falha ao avisar 1ª alçada do pedido ${orderEntry.id}: ${e.message}`));
 
         await registrarLog({
             usuarioEmail: req.user?.email,

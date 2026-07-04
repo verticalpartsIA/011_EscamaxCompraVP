@@ -8,6 +8,8 @@ const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincroniz
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
 const { confirmarEntregaPedido } = require('../services/deliveryConfirmation');
 const { registrarLog } = require('../services/auditoriaService');
+const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
+const logger = require('../utils/logger');
 const {
     criarFluxoAprovacaoProdutos,
     registrarDecisao,
@@ -196,6 +198,15 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
             detalhes: { nivel, motivo },
             pedidoId: req.params.id,
         });
+
+        if (String(decisao).toLowerCase() === 'aprovar' && !aprovouFluxo && updated.aprovacao?.alcadaAtual) {
+            avisarNovaAprovacao({
+                nivel: updated.aprovacao.alcadaAtual,
+                orderId: updated.id,
+                unidade: updated.unidade,
+                valorTotal: calcularValorPedido(updated),
+            }).catch(e => logger.warn(`[whatsapp] Falha ao avisar próxima alçada do pedido ${updated.id}: ${e.message}`));
+        }
 
         if (!aprovouFluxo || updated.pedido_venda?.status !== 'ok') {
             return res.json({ id: updated.id, aprovacao: updated.aprovacao });
