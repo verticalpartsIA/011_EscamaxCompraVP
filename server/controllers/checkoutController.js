@@ -7,6 +7,7 @@ const { cnpjFiliais, calcularTotalCarrinho, validarCheckoutPreflight } = require
 const { etapaVendaProdutoVP } = require('../services/omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
 const logger = require('../utils/logger');
+const { registrarLog } = require('../services/auditoriaService');
 
 function saveOrder(entry) {
     try {
@@ -248,6 +249,13 @@ exports.processar = async (req, res) => {
 
         // Tudo OK — persiste
         saveOrder(orderEntry);
+
+        await registrarLog({
+            usuarioEmail: req.user?.email,
+            acao: 'pedido.criado',
+            detalhes: { unidade, valorTotal: totalCarrinho },
+            pedidoId: orderEntry.id,
+        });
 
         return res.json({
             message: 'Pedidos criados com sucesso!',

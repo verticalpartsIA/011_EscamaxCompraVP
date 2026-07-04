@@ -13,8 +13,13 @@ const checkoutRoutes = require('./routes/checkout');
 const ordersRoutes = require('./routes/orders');
 const produtosVPRoutes = require('./routes/produtosVP');
 const omieRoutes = require('./routes/omie');
+const webhooksSacRoutes = require('./routes/webhooksSac');
+const comprasHistoricoRoutes = require('./routes/comprasHistorico');
+const usuariosRoutes = require('./routes/usuarios');
+const logsRoutes = require('./routes/logs');
 const cron = require('node-cron');
 const { syncOmieProdutos } = require('./services/omieVPSync');
+const { sincronizarTodasFiliais } = require('./services/comprasHistoricoSync');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -37,6 +42,10 @@ app.use('/api/checkout', checkoutRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/produtos-vp', produtosVPRoutes);
 app.use('/api/omie', omieRoutes);
+app.use('/api/webhooks/sac', webhooksSacRoutes);
+app.use('/api/compras-historico', comprasHistoricoRoutes);
+app.use('/api/usuarios', usuariosRoutes);
+app.use('/api/logs', logsRoutes);
 
 // Health Check
 app.get('/health', (req, res) => {
@@ -53,6 +62,13 @@ app.use((req, res) => {
 cron.schedule('0 6,12,18,23 * * *', () => {
     logger.info('[cron] Iniciando sync automático Omie VP...');
     syncOmieProdutos().catch(err => logger.error(`[cron] Sync error: ${err.message}`));
+});
+
+// Sync histórico de compras (Escamax x VerticalParts) 1x por dia às 05h —
+// mantém o retroativo de 01/01/2024 sempre completo e traz pedidos novos.
+cron.schedule('0 5 * * *', () => {
+    logger.info('[cron] Iniciando sync automático do histórico de compras...');
+    sincronizarTodasFiliais().catch(err => logger.error(`[cron] Compras histórico sync error: ${err.message}`));
 });
 
 app.listen(PORT, () => {

@@ -754,6 +754,40 @@ exports.consultarPedidoCompra = async ({ unidade, numero, codigo, codigoIntegrac
     throw ultimoErro || new Error('Pedido de compra não encontrado.');
 };
 
+// ─── pesquisarPedidosCompra: lista TODOS os pedidos de compra da filial ──────
+// Usa o call PesquisarPedCompra (produtos/pedidocompra/). Campos confirmados
+// empiricamente contra a API real: nPagina, nRegsPorPagina, dDataInicial/dDataFinal
+// (formato DD/MM/AAAA), flags lExibirPedidos* para trazer todas as situações.
+exports.pesquisarPedidosCompra = async ({ unidade, pagina = 1, registrosPorPagina = 100, dataInicial, dataFinal }) => {
+    return await omiePost('produtos/pedidocompra/', 'PesquisarPedCompra', {
+        nPagina: pagina,
+        nRegsPorPagina: registrosPorPagina,
+        lExibirPedidosPendentes: 'S',
+        lExibirPedidosFaturados: 'S',
+        lExibirPedidosRecebidos: 'S',
+        lExibirPedidosCancelados: 'S',
+        lExibirPedidosEncerrados: 'S',
+        lExibirPedidosRecParciais: 'S',
+        lExibirPedidosFatParciais: 'S',
+        ...(dataInicial ? { dDataInicial: dataInicial } : {}),
+        ...(dataFinal ? { dDataFinal: dataFinal } : {}),
+    }, unidade);
+};
+
+// ─── listarPedidosVendaVP: lista TODOS os pedidos de venda da VerticalParts ──
+// Usa o call ListarPedidos (produtos/pedido/) na conta da própria VP. Campos
+// confirmados empiricamente: pagina, registros_por_pagina (máx. 100 por página),
+// filtrar_por_data_de / filtrar_por_data_ate (formato DD/MM/AAAA). Não existe
+// filtro por cliente nesta chamada — o filtro é feito no código, por codigo_cliente.
+exports.listarPedidosVendaVP = async ({ pagina = 1, registrosPorPagina = 100, dataInicial, dataFinal }) => {
+    return await omiePost('produtos/pedido/', 'ListarPedidos', {
+        pagina,
+        registros_por_pagina: registrosPorPagina,
+        ...(dataInicial ? { filtrar_por_data_de: dataInicial } : {}),
+        ...(dataFinal ? { filtrar_por_data_ate: dataFinal } : {}),
+    }, 'VP');
+};
+
 exports.consultarPedidoVendaVP = async ({ codigoPedido, codigoPedidoIntegracao }) => {
     const filtros = [];
     if (codigoPedido) filtros.push({ nCodPed: Number(codigoPedido) });

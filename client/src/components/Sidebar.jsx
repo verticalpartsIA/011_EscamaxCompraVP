@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck } from 'lucide-react';
+import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -18,8 +18,13 @@ const NAV = [
     { to: '/dashboard', icon: BarChart2, label: 'Dashboard' },
 ];
 
+const NAV_ADMIN = [
+    { to: '/logs', icon: ScrollText, label: 'Logs' },
+    { to: '/usuarios/convidar', icon: UserPlus, label: 'Convidar Usuário' },
+];
+
 export default function Sidebar({ logout }) {
-    const { filial } = useAuth();
+    const { filial, user } = useAuth();
     const navigate = useNavigate();
     const [totalDemandas, setTotalDemandas] = useState(contarDemandas);
 
@@ -28,6 +33,8 @@ export default function Sidebar({ logout }) {
         window.addEventListener('storage', handler);
         return () => window.removeEventListener('storage', handler);
     }, []);
+
+    const nav = user?.admin ? [...NAV, ...NAV_ADMIN] : NAV;
 
     return (
         <aside className="dark-scroll flex h-full w-[220px] flex-col overflow-y-auto bg-surface border-r border-surface-border">
@@ -38,7 +45,7 @@ export default function Sidebar({ logout }) {
 
             {/* Navegação */}
             <nav className="flex-1 space-y-0.5 p-2 pt-3">
-                {NAV.map(({ to, icon: Icon, label, badge }) => (
+                {nav.map(({ to, icon: Icon, label, badge }) => (
                     <NavLink
                         key={to}
                         to={to}

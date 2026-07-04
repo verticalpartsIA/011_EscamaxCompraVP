@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Package, Calendar, Filter, RefreshCw, Building2, CreditCard } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Package, Calendar, Filter, RefreshCw, Building2, CreditCard, History, AlertTriangle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -204,6 +205,123 @@ function OrderRow({ order, onAudit, auditing }) {
     );
 }
 
+// ── Compras na VerticalParts (Omie) — retroativo desde 01/2024 ────────────────
+// Estritamente isolado pela filial ativa na sidebar. Nunca mistura dados de
+// filiais diferentes: cada card mostra somente o histórico da filial selecionada.
+function ComprasHistoricoOmie() {
+    const { filial } = useAuth();
+    const token = localStorage.getItem('token');
+    const [itens, setItens] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [syncing, setSyncing] = useState(false);
+    const [error, setError] = useState(null);
+
+    const carregar = useCallback(async () => {
+        if (!filial?.id) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/compras-historico?unidade=${filial.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Erro ${res.status}`);
+            setItens(await res.json());
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
+    }, [filial?.id, token]);
+
+    // Recarrega sempre que a filial ativa (seletor da sidebar) mudar
+    useEffect(() => { carregar(); }, [carregar]);
+
+    const sincronizar = async () => {
+        if (!filial?.id) return;
+        setSyncing(true);
+        try {
+            await fetch(`${API_BASE}/api/compras-historico/sync?unidade=${filial.id}`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            await carregar();
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    const total = useMemo(() => itens.reduce((s, i) => s + Number(i.valor || 0), 0), [itens]);
+
+    return (
+        <div className="mb-8 rounded-xl border border-neutral-200 bg-white shadow-card">
+            <div className="flex items-start justify-between gap-4 border-b border-neutral-100 px-5 py-4">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <History size={16} className="text-primary-dark" />
+                        <h2 className="font-display text-lg text-black">Compras na VerticalParts</h2>
+                    </div>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                        Filial <strong>{filial?.label || '—'}</strong> · desde 01/2024 · fonte: Omie
+                        {itens.length > 0 && (
+                            <span className="ml-2 text-neutral-400">
+                                {itens.length} item(ns) · {BRL(total)}
+                            </span>
+                        )}
+                    </p>
+                </div>
+                <button
+                    onClick={sincronizar}
+                    disabled={syncing}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-semibold border border-neutral-200 transition-colors disabled:opacity-50 shrink-0"
+                >
+                    <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+                    Sincronizar
+                </button>
+            </div>
+
+            {loading ? (
+                <div className="p-5 space-y-2">
+                    {[1, 2, 3].map(i => <div key={i} className="h-8 rounded bg-neutral-50 animate-pulse" />)}
+                </div>
+            ) : error ? (
+                <div className="p-5 flex items-center gap-2 text-sm font-semibold text-danger">
+                    <AlertTriangle size={15} className="shrink-0" />
+                    {error}
+                </div>
+            ) : itens.length === 0 ? (
+                <div className="p-8 text-center text-neutral-400 text-sm">
+                    Nenhuma compra da filial {filial?.label} na VerticalParts encontrada desde 01/2024.
+                </div>
+            ) : (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="border-b border-neutral-100 bg-neutral-50 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                                <th className="px-5 py-2 text-left">Código</th>
+                                <th className="px-5 py-2 text-left">Descrição</th>
+                                <th className="px-5 py-2 text-right">Valor</th>
+                                <th className="px-5 py-2 text-right">Data</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-neutral-50">
+                            {itens.map((item, i) => (
+                                <tr key={`${item.numero_pedido}-${item.codigo_produto}-${i}`} className="hover:bg-neutral-50">
+                                    <td className="px-5 py-2 font-mono text-xs text-neutral-500">{item.codigo_produto}</td>
+                                    <td className="px-5 py-2 text-neutral-800">{item.descricao}</td>
+                                    <td className="px-5 py-2 text-right font-semibold text-neutral-800">{BRL(item.valor)}</td>
+                                    <td className="px-5 py-2 text-right text-neutral-500">{formatDateBR(item.data_pedido)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function HistoryPage() {
     const token = localStorage.getItem('token');
     const [allOrders, setAllOrders] = useState([]);
@@ -309,6 +427,8 @@ export default function HistoryPage() {
                     Atualizar
                 </button>
             </div>
+
+            <ComprasHistoricoOmie />
 
             {/* Filtros */}
             <div className="flex flex-wrap items-end gap-3 mb-6 p-4 rounded-xl border border-neutral-200 bg-white shadow-card">

@@ -6,10 +6,11 @@ const { ORDERS_FILE, readOrders, updateOrder } = require('../services/orderStore
 const { validarPlanoPagamentoSalvo } = require('../services/paymentPlan');
 const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincronizacaoEtapa } = require('../services/omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
+const { confirmarEntregaPedido } = require('../services/deliveryConfirmation');
+const { registrarLog } = require('../services/auditoriaService');
 const {
     criarFluxoAprovacaoProdutos,
     registrarDecisao,
-    confirmarEntrega,
     obterPermissoesAprovacao,
     validarAprovador,
     validarFaturamento,
@@ -102,9 +103,9 @@ router.get('/', authMiddleware, (req, res) => {
     }
 });
 
-router.get('/aprovacoes/permissoes', authMiddleware, (req, res) => {
+router.get('/aprovacoes/permissoes', authMiddleware, async (req, res) => {
     try {
-        res.json(obterPermissoesAprovacao(req.user?.email));
+        res.json(await obterPermissoesAprovacao(req.user?.email));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -177,7 +178,7 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
     try {
         const { nivel, decisao, motivo } = req.body;
         const usuario = req.user?.email || 'sistema';
-        validarAprovador(usuario, nivel);
+        await validarAprovador(usuario, nivel);
 
         let aprovouFluxo = false;
         const updated = updateOrder(req.params.id, order => {
@@ -188,6 +189,13 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
         });
 
         if (!updated) return res.status(404).json({ error: 'Pedido não encontrado.' });
+
+        await registrarLog({
+            usuarioEmail: usuario,
+            acao: String(decisao).toLowerCase() === 'reprovar' ? 'pedido.reprovado' : 'pedido.alcada_aprovada',
+            detalhes: { nivel, motivo },
+            pedidoId: req.params.id,
+        });
 
         if (!aprovouFluxo || updated.pedido_venda?.status !== 'ok') {
             return res.json({ id: updated.id, aprovacao: updated.aprovacao });
@@ -243,9 +251,12 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
     }
 });
 
+// Confirmação manual (override) — uso excepcional. O caminho normal é automático,
+// disparado pelo webhook /api/webhooks/sac/entrega-confirmada quando o SAC Pós-Venda 360
+// registra a entrega física da mercadoria.
 router.post('/:id/confirmar-entrega', authMiddleware, async (req, res) => {
     try {
-        validarFaturamento(req.user?.email);
+        await validarFaturamento(req.user?.email);
 
         if (req.body?.confirmarFaturamento !== true) {
             return res.status(400).json({
@@ -253,60 +264,25 @@ router.post('/:id/confirmar-entrega', authMiddleware, async (req, res) => {
             });
         }
 
-        const orders = readOrders();
-        const order = orders.find(item => item.id === req.params.id);
-        if (!order) return res.status(404).json({ error: 'Pedido não encontrado.' });
-
-        const aprovacao = ensureAprovacao(order);
-        if (aprovacao.status !== 'aprovado') {
-            return res.status(409).json({
-                error: 'Entrega bloqueada: o pedido ainda não concluiu todas as alçadas de aprovação.',
-                aprovacao,
-            });
-        }
-
-        validarPlanoPagamentoSalvo(order.planoPagamento, calcularValorPedido(order));
-
-        const codigoPedido = order.pedido_venda?.codigo;
-        const codigoPedidoIntegracao = order.pedido_venda?.codigo_integracao;
-        if (!codigoPedido && !codigoPedidoIntegracao) {
-            return res.status(400).json({
-                error: 'Pedido de venda sem código interno/integrado da Omie para enviar à etapa Faturar.',
-            });
-        }
-
-        const omie = await omieClient.marcarPedidoVendaVPParaFaturar({
-            codigoPedido,
-            codigoPedidoIntegracao,
-        });
-        const etapaFaturar = etapaVendaProdutoVP('FATURAR');
-
-        const updated = updateOrder(req.params.id, current => {
-            current.aprovacao = confirmarEntrega(aprovacao);
-            current = registrarSincronizacaoEtapa(current, {
-                origem: 'produto.entregue',
-                etapaLocal: current.aprovacao.etapaAtual,
-                etapaOmie: etapaFaturar,
-                resultado: omie,
-            });
-            current.pedido_venda.faturar_em = new Date().toISOString();
-            current.financeiro = {
-                ...(current.financeiro || {}),
-                notificado: true,
-                notificadoEm: new Date().toISOString(),
-                mensagem: 'Pedido entregue. Faturamento solicitado automaticamente para a VerticalParts.',
-            };
-            return current;
+        const resultado = await confirmarEntregaPedido(req.params.id, {
+            origem: 'manual_portal',
+            detalhe: `Confirmado manualmente por ${req.user?.email || 'usuário'} no portal Escamax.`,
         });
 
-        res.json({ id: updated.id, pedido_venda: updated.pedido_venda, aprovacao: updated.aprovacao, omie });
+        await registrarLog({
+            usuarioEmail: req.user?.email,
+            acao: 'pedido.entrega_confirmada_manual',
+            pedidoId: req.params.id,
+        });
+
+        res.json(resultado);
     } catch (err) {
         const detail = err.response?.data?.faultstring || err.response?.data?.message || err.message;
-        const status = /sem permissão/i.test(detail)
+        const status = err.status || (/sem permissão/i.test(detail)
             ? 403
             : /Faturamento bloqueado/i.test(detail)
                 ? 409
-                : 500;
+                : 500);
         res.status(status).json({
             error: status === 500 ? 'Erro ao confirmar entrega e mover pedido VP para Faturar.' : detail,
             detail,

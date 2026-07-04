@@ -11,6 +11,9 @@ import PecasSemEstoquePage from './pages/PecasSemEstoquePage';
 import ProdutosVPPage from './pages/ProdutosVPPage';
 import OutrosFornecedoresPage from './pages/OutrosFornecedoresPage';
 import AprovacoesPage from './pages/AprovacoesPage';
+import ConvidarUsuarioPage from './pages/ConvidarUsuarioPage';
+import LogsPage from './pages/LogsPage';
+import AceitarConvitePage from './pages/AceitarConvitePage';
 import CartSidebar from './components/CartSidebar';
 import Sidebar from './components/Sidebar';
 
@@ -22,6 +25,8 @@ const PAGE_TITLES = {
     '/history': 'Histórico de Pedidos',
     '/sem-estoque': 'Peças Sem Estoque',
     '/dashboard': 'Dashboard',
+    '/usuarios/convidar': 'Convidar Usuário',
+    '/logs': 'Logs de Auditoria',
 };
 
 function ProtectedRoute({ children }) {
@@ -35,6 +40,15 @@ function ProtectedRoute({ children }) {
 function AuthRoute({ children }) {
     const { isAuthenticated } = useAuth();
     if (!isAuthenticated) return <Navigate to="/login" replace />;
+    return children;
+}
+
+function AdminRoute({ children }) {
+    const { isAuthenticated, filial, user } = useAuth();
+    const location = useLocation();
+    if (!isAuthenticated) return <Navigate to="/login" state={{ from: location }} replace />;
+    if (!filial) return <Navigate to="/selecionar-filial" replace />;
+    if (!user?.admin) return <Navigate to="/" replace />;
     return children;
 }
 
@@ -153,6 +167,7 @@ export default function App() {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/aceitar-convite" element={<AceitarConvitePage />} />
 
             <Route
                 path="/selecionar-filial"
@@ -236,6 +251,22 @@ export default function App() {
                     <ProtectedRoute>
                         <Layout {...layoutProps}><PecasSemEstoquePage /></Layout>
                     </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/usuarios/convidar"
+                element={
+                    <AdminRoute>
+                        <Layout {...layoutProps}><ConvidarUsuarioPage /></Layout>
+                    </AdminRoute>
+                }
+            />
+            <Route
+                path="/logs"
+                element={
+                    <AdminRoute>
+                        <Layout {...layoutProps}><LogsPage /></Layout>
+                    </AdminRoute>
                 }
             />
         </Routes>

@@ -1,19 +1,19 @@
 const ALCADAS_PRODUTOS = [
     {
         nivel: 1,
-        papel: 'Gerente',
+        papel: 'Gustavo',
         valorMin: 0.01,
         valorMax: 3000,
     },
     {
         nivel: 2,
-        papel: 'Gerente Sênior',
+        papel: 'Michel',
         valorMin: 3000.01,
         valorMax: 5000,
     },
     {
         nivel: 3,
-        papel: 'Diretor',
+        papel: 'Diego',
         valorMin: 5000.01,
         valorMax: Infinity,
     },
@@ -29,68 +29,38 @@ const ETAPAS_KANBAN_PRODUTOS = {
     CANCELADO: { codigo: '99', label: 'Cancelado/Reprovado' },
 };
 
-const BOOTSTRAP_ADMIN_EMAILS = ['gelson.simoes@verticalparts.com.br'];
+const { buscarUsuarioPorEmail, normalizarEmail } = require('./usuariosService');
 
-function normalizarEmail(email) {
-    return String(email || '').trim().toLowerCase();
-}
-
-function parseEmailList(value) {
-    return String(value || '')
-        .split(/[;,]/)
-        .map(normalizarEmail)
-        .filter(Boolean);
-}
-
-function unique(values) {
-    return [...new Set(values.filter(Boolean))];
-}
-
-function obterAdminsAprovacao() {
-    const envAdmins = [
-        ...parseEmailList(process.env.ALCADA_PRODUTOS_ADMIN_EMAILS),
-        ...parseEmailList(process.env.APPROVAL_ADMIN_EMAILS),
-    ];
-    const strict = String(process.env.ALCADA_PRODUTOS_STRICT || '').toUpperCase() === 'S';
-    return unique(strict ? envAdmins : [...envAdmins, ...BOOTSTRAP_ADMIN_EMAILS]);
-}
-
-function obterMatrizAprovadores() {
-    const admins = obterAdminsAprovacao();
-    return {
-        1: unique([...admins, ...parseEmailList(process.env.ALCADA_PRODUTOS_GERENTE_EMAILS)]),
-        2: unique([...admins, ...parseEmailList(process.env.ALCADA_PRODUTOS_GERENTE_SENIOR_EMAILS)]),
-        3: unique([...admins, ...parseEmailList(process.env.ALCADA_PRODUTOS_DIRETOR_EMAILS)]),
-        faturamento: unique([...admins, ...parseEmailList(process.env.ALCADA_PRODUTOS_FATURAMENTO_EMAILS)]),
-        admins,
-    };
-}
-
-function obterPermissoesAprovacao(email) {
+// Permissões agora vêm da tabela `usuarios` (gerenciada em "Convidar Usuário"),
+// não mais de variáveis de ambiente. alcada_nivel identifica Gustavo(1)/Michel(2)/
+// Diego(3); is_admin dá acesso a Logs/Convite e à alçada de faturamento manual.
+async function obterPermissoesAprovacao(email) {
     const emailNormalizado = normalizarEmail(email);
-    const matriz = obterMatrizAprovadores();
-    const niveis = ALCADAS_PRODUTOS
-        .filter(alcada => matriz[alcada.nivel]?.includes(emailNormalizado))
-        .map(alcada => alcada.nivel);
+    const usuario = await buscarUsuarioPorEmail(emailNormalizado);
+
+    if (!usuario || !usuario.ativo) {
+        return { email: emailNormalizado, admin: false, niveis: [], podeFaturar: false, usuario: null };
+    }
 
     return {
         email: emailNormalizado,
-        admin: matriz.admins.includes(emailNormalizado),
-        niveis,
-        podeFaturar: matriz.faturamento.includes(emailNormalizado),
+        admin: Boolean(usuario.is_admin),
+        niveis: usuario.alcada_nivel ? [Number(usuario.alcada_nivel)] : [],
+        podeFaturar: Boolean(usuario.is_admin),
+        usuario,
     };
 }
 
-function validarAprovador(email, nivel) {
-    const permissoes = obterPermissoesAprovacao(email);
+async function validarAprovador(email, nivel) {
+    const permissoes = await obterPermissoesAprovacao(email);
     if (!permissoes.niveis.includes(Number(nivel))) {
         throw new Error(`Usuário sem permissão para decidir a ${nivel}ª alçada.`);
     }
     return permissoes;
 }
 
-function validarFaturamento(email) {
-    const permissoes = obterPermissoesAprovacao(email);
+async function validarFaturamento(email) {
+    const permissoes = await obterPermissoesAprovacao(email);
     if (!permissoes.podeFaturar) {
         throw new Error('Usuário sem permissão para confirmar entrega e mover o pedido para Faturar.');
     }
@@ -147,6 +117,10 @@ function registrarDecisao(fluxo, { nivel, decisao, usuario, motivo = '' }) {
     const alcada = fluxo.alcadas.find(item => Number(item.nivel) === Number(nivel));
     if (!alcada) throw new Error(`Alçada ${nivel} não pertence a este fluxo.`);
 
+    if (!String(motivo || '').trim()) {
+        throw new Error('Justificativa obrigatória: todo aprovador precisa justificar a decisão (aprovar ou reprovar).');
+    }
+
     const decisaoNormalizada = String(decisao || '').toLowerCase();
     if (decisaoNormalizada === 'reprovar') {
         alcada.status = 'reprovado';
@@ -172,10 +146,12 @@ function registrarDecisao(fluxo, { nivel, decisao, usuario, motivo = '' }) {
     alcada.status = 'aprovado';
     alcada.aprovadoEm = new Date().toISOString();
     alcada.aprovadoPor = usuario || null;
+    alcada.justificativa = motivo;
     fluxo.historico.push({
         evento: 'alcada.aprovada',
         nivel,
         usuario: usuario || null,
+        justificativa: motivo,
         criadoEm: new Date().toISOString(),
     });
 
@@ -197,7 +173,7 @@ function registrarDecisao(fluxo, { nivel, decisao, usuario, motivo = '' }) {
     return fluxo;
 }
 
-function confirmarEntrega(fluxo) {
+function confirmarEntrega(fluxo, meta = {}) {
     const atualizado = {
         ...fluxo,
         etapaAtual: ETAPAS_KANBAN_PRODUTOS.FATURAR.codigo,
@@ -207,6 +183,8 @@ function confirmarEntrega(fluxo) {
             {
                 evento: 'produto.entregue',
                 etapa: ETAPAS_KANBAN_PRODUTOS.ENTREGUE.codigo,
+                origem: meta.origem || 'manual_portal',
+                detalhe: meta.detalhe || null,
                 criadoEm: new Date().toISOString(),
             },
             {

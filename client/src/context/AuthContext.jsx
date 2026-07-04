@@ -32,29 +32,14 @@ export function AuthProvider({ children }) {
         setLoading(false);
     }, []);
 
-    const login = async (email) => {
-        const AUTORIZADOS = ['adm@escamax.com.br', 'tiverticalparts@gmail.com', 'gelson.simoes@verticalparts.com.br'];
-        if (!AUTORIZADOS.includes((email || '').toLowerCase().trim())) {
-            throw new Error('Acesso não autorizado para este e-mail.');
-        }
+    const login = async (email, senha) => {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
+            body: JSON.stringify({ email, senha })
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Erro ao solicitar código');
-        return true;
-    };
-
-    const verifyCode = async (email, code) => {
-        const response = await fetch('/api/auth/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, code })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Código inválido');
+        if (!response.ok) throw new Error(data.error || 'E-mail ou senha inválidos.');
 
         localStorage.setItem('token', data.token);
         localStorage.setItem('escamax_user', JSON.stringify(data.user));
@@ -77,7 +62,7 @@ export function AuthProvider({ children }) {
         setIsAuthenticated(false);
     };
 
-    const value = { user, filial, isAuthenticated, login, verifyCode, selectFilial, logout, loading };
+    const value = { user, filial, isAuthenticated, login, selectFilial, logout, loading };
 
     return (
         <AuthContext.Provider value={value}>

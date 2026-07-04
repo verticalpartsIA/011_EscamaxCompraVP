@@ -80,7 +80,9 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                 {order.financeiro?.notificado && (
                     <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-bold text-green-700">
                         <PackageCheck className="h-4 w-4" />
-                        Financeiro acionado para faturar
+                        {order.financeiro?.origemConfirmacao === 'sac_pv360'
+                            ? 'Entrega confirmada pelo SAC Pós-Venda 360 — Faturamento acionado'
+                            : 'Financeiro acionado para faturar'}
                     </div>
                 )}
             </div>
@@ -129,31 +131,44 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                 </div>
             )}
 
+            {/* Status do faturamento — somente leitura. A VerticalParts é quem decide quando
+                faturar, no ato da entrega (SAC Pós-Venda 360); a Escamax não confirma nada aqui. */}
+            {aprovacao.status === 'aprovado' && (
+                order.financeiro?.notificado ? (
+                    <div className="mt-4 flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-800">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>
+                            {order.financeiro?.origemConfirmacao === 'sac_pv360'
+                                ? 'Entrega confirmada automaticamente pelo SAC Pós-Venda 360'
+                                : 'Entrega confirmada (override manual)'}
+                            {order.financeiro?.notificadoEm ? ` em ${formatDateBR(order.financeiro.notificadoEm)}` : ''}
+                            . Faturamento solicitado à VerticalParts.
+                        </span>
+                    </div>
+                ) : (
+                    <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
+                        Aguardando a VerticalParts confirmar a entrega física no SAC Pós-Venda 360. Assim que a
+                        expedição registrar a entrega, o faturamento é liberado automaticamente — a Escamax não
+                        precisa confirmar nada aqui.
+                    </div>
+                )
+            )}
+
             <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
                 <label className="space-y-1">
-                    <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">Motivo da reprovação</span>
+                    <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">Justificativa (obrigatória para aprovar ou reprovar)</span>
                     <input
                         value={motivo}
                         onChange={e => setMotivo(e.target.value)}
                         className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-primary"
-                        placeholder="Obrigatório apenas para reprovar"
+                        placeholder="Explique o motivo da decisão"
                     />
-                </label>
-                <label className={`flex max-w-md items-start gap-2 rounded-lg border px-3 py-2 text-xs font-semibold ${podeEntregar ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-neutral-200 bg-neutral-50 text-neutral-400'}`}>
-                    <input
-                        type="checkbox"
-                        checked={confirmarFaturamento}
-                        onChange={e => setConfirmarFaturamento(e.target.checked)}
-                        disabled={!podeEntregar || Boolean(busy)}
-                        className="mt-0.5"
-                    />
-                    <span>Entrega física conferida. Autorizo mover o Pedido de Venda VP para Faturar.</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                     <button
                         type="button"
                         onClick={() => executar('aprovar')}
-                        disabled={!podeAprovarAlcada || Boolean(busy)}
+                        disabled={!podeAprovarAlcada || Boolean(busy) || !motivo.trim()}
                         className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
                     >
                         <CheckCircle2 className="h-4 w-4" />
@@ -168,17 +183,41 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                         <XCircle className="h-4 w-4" />
                         Reprovar
                     </button>
+                </div>
+            </div>
+
+            {/* Exceção — não é o fluxo normal. Só existe para destravar um pedido caso a
+                integração com o SAC Pós-Venda 360 esteja fora do ar. Colapsado por padrão. */}
+            {podeEntregar && (
+                <details className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500">
+                    <summary className="cursor-pointer select-none font-bold uppercase tracking-[0.1em] text-neutral-400">
+                        Exceção: forçar faturamento manualmente
+                    </summary>
+                    <p className="mt-2">
+                        Use apenas se a integração com o SAC Pós-Venda 360 estiver indisponível. O normal é a
+                        VerticalParts confirmar a entrega no SAC e o faturamento ser liberado sozinho.
+                    </p>
+                    <label className="mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 font-semibold text-amber-800">
+                        <input
+                            type="checkbox"
+                            checked={confirmarFaturamento}
+                            onChange={e => setConfirmarFaturamento(e.target.checked)}
+                            disabled={Boolean(busy)}
+                            className="mt-0.5"
+                        />
+                        <span>Confirmo a entrega física e autorizo mover o Pedido de Venda VP para Faturar agora.</span>
+                    </label>
                     <button
                         type="button"
                         onClick={() => executar('entregar')}
-                        disabled={!podeEntregar || !confirmarFaturamento || Boolean(busy)}
-                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-bold text-black transition hover:bg-primary-light disabled:cursor-not-allowed disabled:bg-neutral-200 disabled:text-neutral-400"
+                        disabled={!confirmarFaturamento || Boolean(busy)}
+                        className="mt-2 inline-flex items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-bold text-neutral-700 transition hover:border-primary hover:text-primary-dark disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400"
                     >
                         <PackageCheck className="h-4 w-4" />
-                        Entregue/Faturar
+                        Forçar Entregue/Faturar (manual)
                     </button>
-                </div>
-            </div>
+                </details>
+            )}
         </section>
     );
 }
@@ -267,7 +306,8 @@ export default function AprovacoesPage() {
                     <p className="vp-eyebrow">Governança B2B</p>
                     <h1 className="font-display text-2xl font-bold text-black">Alçadas de Aprovação</h1>
                     <p className="mt-1 text-sm text-neutral-500">
-                        Libera faturamento da VerticalParts somente após a sequência de aprovações.
+                        Após a sequência de aprovações, o faturamento é liberado automaticamente quando o
+                        SAC Pós-Venda 360 confirma a entrega física da mercadoria.
                     </p>
                     <p className="mt-2 text-xs font-semibold text-neutral-500">
                         Suas permissões: {permissoes.admin ? 'Administrador de aprovações' : `Alçadas ${(permissoes.niveis || []).join(', ') || 'nenhuma'}`} · Faturamento {permissoes.podeFaturar ? 'liberado' : 'bloqueado'}

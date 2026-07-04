@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { Mail, KeyRound, ArrowRight, AlertCircle, Check, Loader2 } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle, Check, Loader2 } from 'lucide-react';
 
 const FEATURES = [
     'Catálogo de peças e estoque em tempo real',
@@ -10,34 +10,19 @@ const FEATURES = [
 ];
 
 export default function LoginPage() {
-    const [step, setStep] = useState(1);
     const [email, setEmail] = useState('');
-    const [code, setCode] = useState('');
+    const [senha, setSenha] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const { login, verifyCode } = useAuth();
+    const { login } = useAuth();
     const navigate = useNavigate();
 
-    const handleEmailSubmit = async (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setLoading(true);
         try {
-            await login(email);
-            setStep(2);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleCodeSubmit = async (e) => {
-        e.preventDefault();
-        setError('');
-        setLoading(true);
-        try {
-            await verifyCode(email, code);
+            await login(email, senha);
             navigate('/');
         } catch (err) {
             setError(err.message);
@@ -104,12 +89,11 @@ export default function LoginPage() {
                     <div className="mb-8">
                         <span className="vp-eyebrow">Portal Escamax</span>
                         <h2 className="mt-3 font-display text-3xl leading-tight text-black">
-                            {step === 1 ? 'Entrar na plataforma' : 'Verificar acesso'}
+                            Entrar na plataforma
                         </h2>
                         <p className="mt-2 text-sm leading-relaxed text-neutral-600">
-                            {step === 1
-                                ? 'Use seu e-mail corporativo autorizado para receber o código de acesso.'
-                                : <>Enviamos um código de 6 dígitos para <strong className="text-black">{email}</strong>.</>}
+                            Acesso restrito a e-mails corporativos @escamax.com.br e @verticalparts.com.br,
+                            liberados por convite do administrador.
                         </p>
                     </div>
 
@@ -120,73 +104,54 @@ export default function LoginPage() {
                         </div>
                     )}
 
-                    {step === 1 ? (
-                        <form onSubmit={handleEmailSubmit}>
-                            <div className="mb-4">
-                                <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.16em] text-neutral-700">E-mail</label>
-                                <div className="relative">
-                                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
-                                        <Mail className="h-4 w-4" />
-                                    </span>
-                                    <input
-                                        type="email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        autoComplete="email"
-                                        required
-                                        placeholder="adm@escamax.com.br"
-                                        className="w-full rounded border border-neutral-200 bg-white py-3.5 pl-11 pr-3.5 text-sm text-black outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/20"
-                                    />
-                                </div>
+                    <form onSubmit={handleSubmit}>
+                        <div className="mb-4">
+                            <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.16em] text-neutral-700">E-mail</label>
+                            <div className="relative">
+                                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
+                                    <Mail className="h-4 w-4" />
+                                </span>
+                                <input
+                                    type="email"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    autoComplete="email"
+                                    required
+                                    placeholder="adm@escamax.com.br"
+                                    className="w-full rounded border border-neutral-200 bg-white py-3.5 pl-11 pr-3.5 text-sm text-black outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/20"
+                                />
                             </div>
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded bg-primary px-6 text-sm font-bold text-black transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary-light hover:shadow-brand active:translate-y-0 active:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60 disabled:!translate-y-0"
-                            >
-                                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                Solicitar Acesso
-                                {!loading && <ArrowRight className="h-4 w-4" />}
-                            </button>
-                        </form>
-                    ) : (
-                        <form onSubmit={handleCodeSubmit}>
-                            <div className="mb-4">
-                                <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.16em] text-neutral-700">Código de 6 dígitos</label>
-                                <div className="relative">
-                                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
-                                        <KeyRound className="h-4 w-4" />
-                                    </span>
-                                    <input
-                                        type="text"
-                                        value={code}
-                                        onChange={(e) => setCode(e.target.value)}
-                                        inputMode="numeric"
-                                        maxLength="6"
-                                        required
-                                        placeholder="000000"
-                                        className="w-full rounded border border-neutral-200 bg-white py-3.5 pl-11 pr-3.5 text-center text-2xl font-bold tracking-[0.4em] text-black outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/20"
-                                    />
-                                </div>
+                        </div>
+                        <div className="mb-4">
+                            <label className="mb-2 block text-[11px] font-bold uppercase tracking-[0.16em] text-neutral-700">Senha</label>
+                            <div className="relative">
+                                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400">
+                                    <Lock className="h-4 w-4" />
+                                </span>
+                                <input
+                                    type="password"
+                                    value={senha}
+                                    onChange={(e) => setSenha(e.target.value)}
+                                    autoComplete="current-password"
+                                    required
+                                    placeholder="••••••••"
+                                    className="w-full rounded border border-neutral-200 bg-white py-3.5 pl-11 pr-3.5 text-sm text-black outline-none transition focus:border-primary focus:ring-[3px] focus:ring-primary/20"
+                                />
                             </div>
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded bg-primary px-6 text-sm font-bold text-black transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary-light hover:shadow-brand active:translate-y-0 active:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60 disabled:!translate-y-0"
-                            >
-                                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                                Validar Token
-                                {!loading && <ArrowRight className="h-4 w-4" />}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => { setStep(1); setError(''); }}
-                                className="mt-6 w-full text-center text-[13px] font-semibold text-neutral-600 transition-colors hover:text-black"
-                            >
-                                ← Usar outro e-mail
-                            </button>
-                        </form>
-                    )}
+                        </div>
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded bg-primary px-6 text-sm font-bold text-black transition-all duration-150 hover:-translate-y-0.5 hover:bg-primary-light hover:shadow-brand active:translate-y-0 active:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60 disabled:!translate-y-0"
+                        >
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                            Entrar
+                            {!loading && <ArrowRight className="h-4 w-4" />}
+                        </button>
+                        <p className="mt-6 text-center text-[13px] text-neutral-500">
+                            Ainda não tem acesso? Peça um convite ao administrador do portal.
+                        </p>
+                    </form>
                 </div>
             </div>
         </div>

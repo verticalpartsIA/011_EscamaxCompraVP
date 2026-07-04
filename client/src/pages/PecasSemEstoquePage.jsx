@@ -1,35 +1,61 @@
-import React, { useState, useEffect } from 'react';
-import { Trash2, PackageX, ClipboardList } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { PackageX, RefreshCw, AlertTriangle, Search } from 'lucide-react';
 
-function lerDemandas() {
-    try { return JSON.parse(localStorage.getItem('escamax_demandas') || '[]'); }
-    catch { return []; }
+const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
+const PREFIXOS_INTERNOS = ['VPCON', 'VPIN'];
+
+function getCodigoVP(produto) {
+    const codigo = String(produto?.codigo ?? '').trim();
+    if (!/^VP/i.test(codigo)) return '';
+    if (PREFIXOS_INTERNOS.some(prefix => codigo.toUpperCase().startsWith(prefix))) return '';
+    return codigo;
+}
+
+// Mesma fonte de dados da página "Produtos VerticalParts" (tabela sincronizada
+// omie_produtos), filtrando só os itens com estoque zerado ou negativo.
+async function fetchSemEstoque() {
+    const resp = await fetch(
+        `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,estoque_atual,valor_unitario,updated_at&ativo=eq.true&codigo=ilike.VP*&codigo=not.ilike.VPCON*&codigo=not.ilike.VPIN*&estoque_atual=lte.0&order=descricao.asc&limit=2000`,
+        {
+            headers: {
+                'apikey': SUPABASE_ANON,
+                'Authorization': `Bearer ${SUPABASE_ANON}`,
+            },
+        }
+    );
+    if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
+    return resp.json();
 }
 
 export default function PecasSemEstoquePage() {
-    const [demandas, setDemandas] = useState(lerDemandas);
+    const [produtos, setProdutos] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [search, setSearch] = useState('');
 
-    useEffect(() => {
-        const handler = () => setDemandas(lerDemandas());
-        window.addEventListener('storage', handler);
-        return () => window.removeEventListener('storage', handler);
+    const carregar = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const data = await fetchSemEstoque();
+            setProdutos(data.filter(p => getCodigoVP(p)));
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const remover = (codigo) => {
-        const novas = demandas.filter(d => d.codigo !== codigo);
-        localStorage.setItem('escamax_demandas', JSON.stringify(novas));
-        window.dispatchEvent(new Event('storage'));
-        setDemandas(novas);
-    };
+    useEffect(() => { carregar(); }, [carregar]);
 
-    const limparTudo = () => {
-        localStorage.removeItem('escamax_demandas');
-        window.dispatchEvent(new Event('storage'));
-        setDemandas([]);
-    };
+    const filtrados = produtos.filter(p =>
+        p.descricao?.toLowerCase().includes(search.toLowerCase()) ||
+        p.codigo?.toLowerCase().includes(search.toLowerCase())
+    );
 
     return (
-        <div className="max-w-3xl mx-auto space-y-5">
+        <div className="max-w-4xl mx-auto space-y-5">
             {/* Cabeçalho */}
             <div className="flex items-start justify-between gap-4">
                 <div>
@@ -38,70 +64,81 @@ export default function PecasSemEstoquePage() {
                         Peças Sem Estoque
                     </h2>
                     <p className="text-sm text-neutral-500 mt-0.5">
-                        {demandas.length === 0
-                            ? 'Nenhuma demanda registrada.'
-                            : `${demandas.length} produto${demandas.length > 1 ? 's' : ''} aguardando reposição.`}
+                        {loading
+                            ? 'Carregando...'
+                            : `${filtrados.length} produto${filtrados.length !== 1 ? 's' : ''} da VerticalParts com estoque zerado.`}
                     </p>
                 </div>
-                {demandas.length > 0 && (
-                    <button
-                        onClick={limparTudo}
-                        className="flex items-center gap-2 px-3 py-2 rounded bg-red-50 border border-red-200 text-danger hover:bg-red-100 transition-colors text-xs font-bold uppercase tracking-[0.08em]"
-                    >
-                        <Trash2 size={14} />
-                        Limpar lista
-                    </button>
-                )}
+                <button
+                    onClick={carregar}
+                    disabled={loading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 shadow-card transition hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    Atualizar
+                </button>
             </div>
 
-            {/* Lista vazia */}
-            {demandas.length === 0 && (
+            {/* Busca */}
+            <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+                <input
+                    type="text"
+                    placeholder="Buscar por código ou descrição..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    className="w-full rounded-xl border border-neutral-200 bg-white py-2.5 pl-10 pr-4 text-sm shadow-card outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                />
+            </div>
+
+            {loading ? (
+                <div className="space-y-2">
+                    {[1, 2, 3, 4].map(i => <div key={i} className="h-12 rounded-xl bg-white border border-neutral-200 animate-pulse" />)}
+                </div>
+            ) : error ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-center">
+                    <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-red-400" />
+                    <p className="text-sm font-medium text-red-600">Erro ao carregar produtos sem estoque</p>
+                    <p className="text-xs text-neutral-400 mt-1">{error}</p>
+                    <button onClick={carregar} className="mt-3 text-xs text-primary underline">Tentar novamente</button>
+                </div>
+            ) : filtrados.length === 0 ? (
                 <div className="rounded-xl border border-neutral-200 bg-white shadow-card p-12 text-center">
-                    <ClipboardList size={48} className="text-neutral-300 mx-auto mb-4" />
-                    <p className="font-display text-xl text-black">Lista vazia</p>
+                    <PackageX size={48} className="text-neutral-300 mx-auto mb-4" />
+                    <p className="font-display text-xl text-black">
+                        {search ? 'Nenhum resultado para essa busca' : 'Nenhuma peça sem estoque no momento'}
+                    </p>
                     <p className="text-neutral-400 text-sm mt-1">
-                        Quando um produto sem estoque for solicitado, ele aparecerá aqui.
+                        Assim que um produto VerticalParts zerar o estoque, ele aparece aqui automaticamente.
                     </p>
                 </div>
-            )}
-
-            {/* Tabela de demandas */}
-            {demandas.length > 0 && (
+            ) : (
                 <div className="rounded-xl border border-neutral-200 bg-white shadow-card overflow-hidden">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b border-neutral-200 bg-neutral-50">
                                 <th className="text-left px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Código</th>
                                 <th className="text-left px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Descrição</th>
-                                <th className="text-center px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Qtd.</th>
-                                <th className="text-right px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Data</th>
-                                <th className="px-3 py-3" />
+                                <th className="text-center px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Un.</th>
+                                <th className="text-right px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Valor Unit.</th>
+                                <th className="text-center px-5 py-3 text-[11px] font-bold text-neutral-500 uppercase tracking-[0.1em]">Estoque</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {demandas.map((d) => (
-                                <tr
-                                    key={d.codigo}
-                                    className="border-b border-neutral-200 hover:bg-neutral-50 transition-colors"
-                                >
+                            {filtrados.map((p) => (
+                                <tr key={p.codigo_produto} className="border-b border-neutral-100 hover:bg-neutral-50 transition-colors">
                                     <td className="px-5 py-3">
-                                        <span className="font-mono text-amber-700 font-bold text-xs">{d.codigo}</span>
+                                        <span className="font-mono text-amber-700 font-bold text-xs">{p.codigo}</span>
                                     </td>
-                                    <td className="px-5 py-3 text-neutral-600 text-xs max-w-[220px] truncate">
-                                        {d.descricao || '—'}
+                                    <td className="px-5 py-3 text-neutral-700 text-xs">{p.descricao}</td>
+                                    <td className="px-5 py-3 text-center text-neutral-500 text-xs">{p.unidade}</td>
+                                    <td className="px-5 py-3 text-right text-neutral-700 text-xs">
+                                        {Number(p.valor_unitario).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                     </td>
-                                    <td className="px-5 py-3 text-center font-bold text-black">{d.quantidade}</td>
-                                    <td className="px-5 py-3 text-right text-neutral-400 text-xs">
-                                        {d.data ? new Date(d.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}
-                                    </td>
-                                    <td className="px-3 py-3 text-right">
-                                        <button
-                                            onClick={() => remover(d.codigo)}
-                                            className="p-1.5 rounded text-neutral-400 hover:text-danger hover:bg-red-50 transition-colors"
-                                            title="Remover da lista"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
+                                    <td className="px-5 py-3 text-center">
+                                        <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
+                                            {Number(p.estoque_atual).toLocaleString('pt-BR')}
+                                        </span>
                                     </td>
                                 </tr>
                             ))}
