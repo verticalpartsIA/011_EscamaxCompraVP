@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const AuthContext = createContext();
 
@@ -11,6 +12,8 @@ export function AuthProvider({ children }) {
     const [filial, setFilialState] = useState(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+    const sessionExpiradaRef = useRef(false);
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -32,7 +35,30 @@ export function AuthProvider({ children }) {
         setLoading(false);
     }, []);
 
+    // Intercepta globalmente respostas 401 da API — sem isso, cada tela mostrava só o erro
+    // cru ("Token inválido"/"Erro 401") quando a sessão expirava (token JWT dura 8h), sem
+    // nunca levar o usuário de volta pro login.
+    useEffect(() => {
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+            const response = await originalFetch(...args);
+            const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+            const isApiCall = url.includes('/api/') && !url.includes('/api/auth/login');
+            if (response.status === 401 && isApiCall && localStorage.getItem('token') && !sessionExpiradaRef.current) {
+                sessionExpiradaRef.current = true;
+                localStorage.removeItem('token');
+                localStorage.removeItem('escamax_user');
+                setUser(null);
+                setIsAuthenticated(false);
+                navigate('/login', { state: { sessaoExpirada: true } });
+            }
+            return response;
+        };
+        return () => { window.fetch = originalFetch; };
+    }, [navigate]);
+
     const login = async (email, senha) => {
+        sessionExpiradaRef.current = false;
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

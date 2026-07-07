@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, AlertCircle, Check, Loader2 } from 'lucide-react';
 
 const FEATURES = [
@@ -16,6 +16,8 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
     const { login } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+    const sessaoExpirada = Boolean(location.state?.sessaoExpirada);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -96,6 +98,13 @@ export default function LoginPage() {
                             liberados por convite do administrador.
                         </p>
                     </div>
+
+                    {sessaoExpirada && !error && (
+                        <div className="mb-4 flex items-start gap-2.5 rounded border-l-[3px] border-amber-500 bg-amber-50 p-3.5 text-sm text-amber-700">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            Sua sessão expirou. Faça login novamente.
+                        </div>
+                    )}
 
                     {error && (
                         <div className="mb-4 flex items-start gap-2.5 rounded border-l-[3px] border-red-600 bg-red-50 p-3.5 text-sm text-red-700">
