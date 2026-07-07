@@ -9,6 +9,8 @@ import HistoryPage from './pages/HistoryPage';
 import DashboardPage from './pages/DashboardPage';
 import PecasSemEstoquePage from './pages/PecasSemEstoquePage';
 import ProdutosVPPage from './pages/ProdutosVPPage';
+import EstoqueVPPage from './pages/EstoqueVPPage';
+import EstoqueEscamaxPage from './pages/EstoqueEscamaxPage';
 import OutrosFornecedoresPage from './pages/OutrosFornecedoresPage';
 import AprovacoesPage from './pages/AprovacoesPage';
 import ConvidarUsuarioPage from './pages/ConvidarUsuarioPage';
@@ -24,6 +26,8 @@ const PAGE_TITLES = {
     '/aprovacoes': 'Alçadas de Aprovação',
     '/history': 'Histórico de Pedidos',
     '/sem-estoque': 'Peças Sem Estoque',
+    '/estoque-vp': 'Estoque VerticalParts',
+    '/estoque-escamax': 'Estoque Escamax',
     '/dashboard': 'Dashboard',
     '/usuarios/convidar': 'Convidar Usuário',
     '/logs': 'Logs de Auditoria',
@@ -234,6 +238,22 @@ export default function App() {
                                 onOpenCart={() => setCartOpen(true)}
                             />
                         </Layout>
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/estoque-vp"
+                element={
+                    <ProtectedRoute>
+                        <Layout {...layoutProps}><EstoqueVPPage /></Layout>
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/estoque-escamax"
+                element={
+                    <ProtectedRoute>
+                        <Layout {...layoutProps}><EstoqueEscamaxPage /></Layout>
                     </ProtectedRoute>
                 }
             />

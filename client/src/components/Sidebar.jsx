@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText } from 'lucide-react';
+import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -8,13 +8,15 @@ function contarDemandas() {
     catch { return 0; }
 }
 
-const NAV = [
+const NAV_BASE = [
     { to: '/', icon: Search, label: 'Consultar Peças' },
     { to: '/produtos-vp', icon: Boxes, label: 'Produtos VerticalParts' },
     { to: '/outros-fornecedores', icon: Store, label: 'Outros Fornecedores' },
     { to: '/aprovacoes', icon: ClipboardCheck, label: 'Aprovações' },
     { to: '/history', icon: Package, label: 'Histórico de Pedidos' },
     { to: '/sem-estoque', icon: PackageX, label: 'Peças Sem Estoque', badge: true },
+    { to: '/estoque-vp', icon: Warehouse, label: 'Estoque VerticalParts' },
+    { to: '/estoque-escamax', icon: Warehouse, labelFn: filial => `Estoque Escamax ${filial?.label || ''}` },
     { to: '/dashboard', icon: BarChart2, label: 'Dashboard' },
 ];
 
@@ -34,7 +36,7 @@ export default function Sidebar({ logout }) {
         return () => window.removeEventListener('storage', handler);
     }, []);
 
-    const nav = user?.admin ? [...NAV, ...NAV_ADMIN] : NAV;
+    const nav = user?.admin ? [...NAV_BASE, ...NAV_ADMIN] : NAV_BASE;
 
     return (
         <aside className="dark-scroll flex h-full w-[220px] flex-col overflow-y-auto bg-surface border-r border-surface-border">
@@ -45,7 +47,7 @@ export default function Sidebar({ logout }) {
 
             {/* Navegação */}
             <nav className="flex-1 space-y-0.5 p-2 pt-3">
-                {nav.map(({ to, icon: Icon, label, badge }) => (
+                {nav.map(({ to, icon: Icon, label, labelFn, badge }) => (
                     <NavLink
                         key={to}
                         to={to}
@@ -59,7 +61,7 @@ export default function Sidebar({ logout }) {
                         }
                     >
                         <Icon className="h-4 w-4 shrink-0" />
-                        <span className="truncate flex-1">{label}</span>
+                        <span className="truncate flex-1">{labelFn ? labelFn(filial) : label}</span>
                         {badge && totalDemandas > 0 && (
                             <span className="rounded bg-primary px-1.5 py-0.5 text-[10px] font-black leading-none text-black">
                                 {totalDemandas}
