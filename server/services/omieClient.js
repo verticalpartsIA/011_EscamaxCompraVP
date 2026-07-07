@@ -277,6 +277,21 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
                 logger.info(`Omie: ConsultarProduto VP ${codigo}: ${e.response?.data?.faultstring || e.message}`);
             }
 
+            // Tenta 1b: ConsultarProduto por codigo (SKU) — muitos produtos têm
+            // codigo_produto_integracao vazio na Omie, mas o campo codigo (SKU) sempre existe.
+            // Também O(1), evita cair na varredura paginada cara (Tenta 3) na maioria dos casos.
+            try {
+                const res = await omiePost('geral/produtos/', 'ConsultarProduto', {
+                    codigo
+                }, 'VP');
+                if (res.codigo_produto) {
+                    logger.info(`Omie: ${codigo} encontrado na VP via ConsultarProduto por SKU (ID: ${res.codigo_produto})`);
+                    return res.codigo_produto;
+                }
+            } catch (e) {
+                logger.info(`Omie: ConsultarProduto VP (por SKU) ${codigo}: ${e.response?.data?.faultstring || e.message}`);
+            }
+
             // Tenta 2: cache em memória já populado (zero custo de API)
             if (cacheEstoque.data && cacheEstoque.data.length > 0) {
                 const p = cacheEstoque.data.find(x => (x.codigo || '').toLowerCase() === (codigo || '').toLowerCase());
@@ -293,7 +308,7 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
                 do {
                     const resVP = await omiePost('geral/produtos/', 'ListarProdutos', {
                         pagina: pagLookup, registros_por_pagina: 500,
-                        apenas_importado_api: 'N'
+                        apenas_importado_api: 'N', filtrar_apenas_omiepdv: 'N', inativo: 'N'
                     }, 'VP');
                     const items = resVP.produto_servico_cadastro || [];
                     totalPags = resVP.total_de_paginas || 1;
@@ -327,6 +342,20 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
                 return data.codigo_produto;
             }
         } catch (e) {
+            logger.info(`Omie: ConsultarProduto ${unidade} para ${codFilial}: ${e.response?.data?.faultstring || e.message}`);
+        }
+
+        // Passo 2a-bis: ConsultarProduto por codigo (SKU) — mesmo caso da VP, muitos produtos
+        // não têm codigo_produto_integracao preenchido, mas o SKU sempre existe. O(1).
+        try {
+            const dataSku = await omiePost('geral/produtos/', 'ConsultarProduto', {
+                codigo: codFilial
+            }, unidade);
+            if (dataSku.codigo_produto) {
+                logger.info(`Omie: Produto ${codFilial} encontrado em ${unidade} via ConsultarProduto por SKU (ID: ${dataSku.codigo_produto})`);
+                return dataSku.codigo_produto;
+            }
+        } catch (e) {
             // Client-103 = produto não cadastrado com esse código de integração — normal, tentamos Listar
             logger.info(`Omie: ConsultarProduto ${unidade} para ${codFilial}: ${e.response?.data?.faultstring || e.message}`);
         }
@@ -337,7 +366,8 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
             let totalPagsFilial = 1;
             do {
                 const res = await omiePost('geral/produtos/', 'ListarProdutos', {
-                    pagina: pagLookup, registros_por_pagina: 500, apenas_importado_api: 'N'
+                    pagina: pagLookup, registros_por_pagina: 500,
+                    apenas_importado_api: 'N', filtrar_apenas_omiepdv: 'N', inativo: 'N'
                 }, unidade);
                 const items = res.produto_servico_cadastro || [];
                 totalPagsFilial = res.total_de_paginas || 1;
@@ -373,7 +403,8 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
                     let pagVP = 1, totalPagsVP = 1;
                     do {
                         const resVP = await omiePost('geral/produtos/', 'ListarProdutos', {
-                            pagina: pagVP, registros_por_pagina: 500, apenas_importado_api: 'N'
+                            pagina: pagVP, registros_por_pagina: 500,
+                            apenas_importado_api: 'N', filtrar_apenas_omiepdv: 'N', inativo: 'N'
                         }, 'VP');
                         const items = resVP.produto_servico_cadastro || [];
                         totalPagsVP = resVP.total_de_paginas || 1;
@@ -451,7 +482,8 @@ async function buscarIdPorCodigo(codigo, unidade = 'VP') {
                         let pagFb = 1;
                         do {
                             const resFallback = await omiePost('geral/produtos/', 'ListarProdutos', {
-                                pagina: pagFb, registros_por_pagina: 500, apenas_importado_api: 'N'
+                                pagina: pagFb, registros_por_pagina: 500,
+                                apenas_importado_api: 'N', filtrar_apenas_omiepdv: 'N', inativo: 'N'
                             }, unidade);
                             const items = resFallback.produto_servico_cadastro || [];
                             const p = items.find(x =>
@@ -623,9 +655,14 @@ function obterCategoriaCompra(unidade, finalidade) {
         return fallback;
     }
 
-    // Último fallback
-    logger.warn(`Omie: Nenhuma categoria configurada para ${unidade}, usando 1.01.01`);
-    return '1.01.01';
+    // Sem categoria configurada para nenhuma finalidade desta unidade: falha alto em vez de
+    // adivinhar um código. Um fallback silencioso já causou pedido travado com "Categoria não
+    // cadastrada" na Omie (ver issue #2) — categoria de despesa é específica de cada filial,
+    // não existe um código universal seguro para chutar.
+    throw new Error(
+        `Omie: categoria de compra não configurada para a unidade "${unidade}" (finalidade "${finalidade}"). ` +
+        `Defina CATEG_REVENDA_${unidade} e/ou CATEG_APLICACAO_${unidade} no .env antes de criar pedidos para esta filial.`
+    );
 }
 
 // ─── incluirRequisicaoCompra (Escamax Filial) ─────────────────────────────────
