@@ -70,8 +70,10 @@ Deno.serve(async (_req) => {
 
     const produtos = await buscarEstoqueOmie();
 
+    // Só interessam produtos com prefixo VPEL, VPER ou VPB — o resto (matéria-prima,
+    // códigos internos, etc.) não faz parte do catálogo de peças mostrado no portal.
     const linhas = produtos
-      .filter((p) => p.cCodigo)
+      .filter((p) => p.cCodigo && /^(VPEL|VPER|VPB)/i.test(p.cCodigo))
       .map((p) => ({
         codigo: p.cCodigo,
         descricao: p.cDescricao || null,
