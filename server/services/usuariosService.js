@@ -67,12 +67,25 @@ async function convidarUsuario({ email, nome, empresa, isAdmin = false, alcadaNi
     if (!inviteResp.ok) {
         if (inviteData?.error_code === 'email_exists') {
             jaExistia = true;
-            // Busca o id existente no Auth via admin API
-            const buscaResp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(emailNorm)}`, {
-                headers: headers(),
-            });
-            const buscaData = await buscaResp.json();
-            userId = buscaData?.users?.[0]?.id || buscaData?.[0]?.id;
+
+            // Caminho rápido: se já existe um perfil em `usuarios` para este e-mail,
+            // o id do Auth é o mesmo (usuarios.id = auth.users.id).
+            const perfilExistente = await buscarUsuarioPorEmail(emailNorm);
+            userId = perfilExistente?.id;
+
+            // Fallback: o endpoint GET /auth/v1/admin/users NÃO filtra de verdade por
+            // ?email= nem ?filter= neste projeto (confirmado: sempre devolve a lista
+            // inteira) — então filtramos manualmente no código em vez de confiar no
+            // primeiro resultado (bug real: convidar um usuário já existente estava
+            // pegando o id de outra pessoa, causando "duplicate key" na tabela usuarios).
+            if (!userId) {
+                const buscaResp = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+                    headers: headers(),
+                });
+                const buscaData = await buscaResp.json();
+                const todos = buscaData?.users || [];
+                userId = todos.find(u => normalizarEmail(u.email) === emailNorm)?.id;
+            }
         } else {
             throw new Error(inviteData?.msg || inviteData?.error || 'Erro ao enviar convite.');
         }
