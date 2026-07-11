@@ -17,6 +17,7 @@ const webhooksSacRoutes = require('./routes/webhooksSac');
 const comprasHistoricoRoutes = require('./routes/comprasHistorico');
 const usuariosRoutes = require('./routes/usuarios');
 const logsRoutes = require('./routes/logs');
+const servicosRoutes = require('./routes/servicos');
 const cron = require('node-cron');
 const { syncOmieProdutos } = require('./services/omieVPSync');
 const { sincronizarTodasFiliais } = require('./services/comprasHistoricoSync');
@@ -46,6 +47,7 @@ app.use('/api/webhooks/sac', webhooksSacRoutes);
 app.use('/api/compras-historico', comprasHistoricoRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/logs', logsRoutes);
+app.use('/api/servicos', servicosRoutes);
 
 // Health Check — em produção o Passenger só roteia /api/* para este processo
 // (ver public_html/.htaccess, PassengerBaseURI /api), então precisa viver

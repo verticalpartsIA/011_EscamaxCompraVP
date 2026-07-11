@@ -95,6 +95,40 @@
   `alcada_nivel = 3` (hoje, Diego) pode **abrir** uma indagação; depois de aberta, qualquer participante da
   conversa pode responder (réplica/tréplica), sem e-mail fixo hardcoded no código.
 
+### Requisição de Serviços — contratação de serviço terceirizado (11/07/2026)
+- Módulo nativo migrado do protótipo `admescamax/approval-hub` (Lovable) — reescrito 100% como
+  código próprio (sem TypeScript/shadcn/Lovable, no padrão JS/Tailwind do resto do `client/`).
+  Nenhum vestígio da Lovable neste repositório (sem `lovable-tagger`, sem comentários/config dela).
+- **Propósito**: controle financeiro da matriz (VerticalParts) sobre gastos da Escamax com
+  fornecedores terceirizados de serviço (não é peça VP — usa seu próprio catálogo de preços `lpu`,
+  separado de `omie_produtos`). Cliente final e fornecedor terceirizado são CNPJs distintos
+  (`clients`/`suppliers`, upsert por CNPJ via BrasilAPI), sem relação com o Omie.
+- **Backend Express** (`server/routes/servicos.js`, `controllers/servicosController.js`,
+  `services/servicosService.js` + `servicoApprovalEngine.js`) — mesmo padrão do checkout de peças:
+  todas as escritas passam pelo Node com a Supabase service key (sem RLS client-side, sem sessão
+  Supabase no frontend). Tabelas já existiam no mesmo projeto Supabase (`branches`, `profiles`,
+  `lpu`, `solicitations`, `solicitation_items`, `solicitation_comments`, `solicitation_attachments`,
+  `clients`, `suppliers`) — provisionadas antes desta branch, já com as 5 filiais e os mesmos
+  usuários da tabela `usuarios`.
+- **Papéis do módulo** vêm de `profiles.role` (admin/gerente_filial/diretor_comercial/financeiro) —
+  é uma tabela diferente de `usuarios` (alçadas de peças), mesmo Supabase Auth por baixo.
+- **Gatilho de segurança (gate do CEO)**: toda requisição, ao ser enviada (ou reenviada após ajuste
+  do solicitante), entra obrigatoriamente em `aguardando_ceo` antes de seguir para diretor comercial
+  e financeiro. Aprovador designado via `.env` (`SERVICOS_CEO_EMAIL`, hoje `adm@escamax.com.br` —
+  Diego). Não aceita qualquer admin como substituto: é um aprovador nomeado, não um papel.
+- Fluxo completo: `rascunho → aguardando_ceo → analise_diretor → aprovado_diretor →
+  em_analise_financeiro → aprovado` (com `ajuste_solicitante`/`ajuste_pagamento`/`rejeitado`/
+  `cancelado` como desvios). Migração `server/migrations/004_servicos_status_ceo.sql`.
+- Aviso de WhatsApp por etapa (CEO/diretor/financeiro) em `whatsappNotifier.js`
+  (`WHATSAPP_FONE_SERVICOS_CEO/DIRETOR/FINANCEIRO`, com fallback pros fones já usados no fluxo de peças).
+- Sidebar: item **"Requisição Serviços"**; LPU (catálogo de preços) fica em admin, sub-item separado.
+- **Limpeza de schema**: removidas as 9 tabelas do protótipo abandonado em inglês (`requests`,
+  `request_items`, `request_comments`, `request_history`, `request_attachments`, `payment_records`,
+  `approval_limits`, `audit_logs`, `lpu_services`) — nenhum código as referenciava. `clients` e
+  `suppliers` foram mantidas: são usadas de verdade por `solicitations.client_id`/`supplier_id`.
+- **Não testado em produção real** (sem a service key real neste ambiente de sessão) — recomendo
+  um teste-piloto manual (rascunho → enviar → decisão do CEO) antes de considerar confiável.
+
 ### Backend em produção (Hostinger, cPanel/Passenger)
 - Deploy do **frontend** é automático via GitHub → Hostinger (Vite build, `client/` como raiz).
 - Deploy do **backend** é manual: `~/domains/escamaxcompravp.vpsistema.com/nodejs/` na VPS compartilhada

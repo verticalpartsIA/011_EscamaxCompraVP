@@ -101,4 +101,65 @@ async function avisarAprovacaoParaDiego({ nivel, orderId, unidade, valorTotal, a
     return resultado;
 }
 
-module.exports = { enviarWhatsapp, avisarNovaAprovacao, avisarAprovacaoParaDiego, linkPortal };
+// ─── Requisição de Serviços (contratação de terceirizado) ────────────────────
+// Mesmo canal Evolution, papéis próprios do módulo: CEO (gate obrigatório),
+// diretor comercial e financeiro. Fones dedicados no .env — CEO tem fallback
+// pro fone do Diego, já que ele é o aprovador designado hoje.
+const FONE_SERVICOS = {
+    ceo: () => process.env.WHATSAPP_FONE_SERVICOS_CEO || process.env.WHATSAPP_FONE_DIEGO,
+    diretor: () => process.env.WHATSAPP_FONE_SERVICOS_DIRETOR || process.env.WHATSAPP_FONE_MICHEL,
+    financeiro: () => process.env.WHATSAPP_FONE_SERVICOS_FINANCEIRO,
+};
+
+function linkServico(id) {
+    return linkPortal(`/requisicao-servicos/${id}`);
+}
+
+async function avisarServicoAguardandoCeo({ id, titulo, filial, valorTotal }) {
+    const texto = [
+        `🔒 *Portal Escamax* — Requisição de Serviço aguardando SEU aval (CEO)`,
+        `Título: ${titulo || '-'}`,
+        `Filial: ${filial || '-'}`,
+        `Valor estimado: R$ ${Number(valorTotal || 0).toFixed(2)}`,
+        linkServico(id),
+    ].join('\n');
+    const resultado = await enviarWhatsapp(FONE_SERVICOS.ceo(), texto);
+    if (!resultado.ok) logger.warn(`[whatsapp] Aviso de gate CEO (serviço ${id}) não enviado: ${resultado.error}`);
+    return resultado;
+}
+
+async function avisarServicoAnaliseDiretor({ id, titulo, filial, valorTotal }) {
+    const texto = [
+        `📋 *Portal Escamax* — Requisição de Serviço liberada pelo CEO, aguardando análise comercial`,
+        `Título: ${titulo || '-'}`,
+        `Filial: ${filial || '-'}`,
+        `Valor estimado: R$ ${Number(valorTotal || 0).toFixed(2)}`,
+        linkServico(id),
+    ].join('\n');
+    const resultado = await enviarWhatsapp(FONE_SERVICOS.diretor(), texto);
+    if (!resultado.ok) logger.warn(`[whatsapp] Aviso de análise diretor (serviço ${id}) não enviado: ${resultado.error}`);
+    return resultado;
+}
+
+async function avisarServicoAnaliseFinanceira({ id, titulo, filial, valorTotal }) {
+    const texto = [
+        `💰 *Portal Escamax* — Requisição de Serviço aprovada pelo diretor, aguardando análise financeira`,
+        `Título: ${titulo || '-'}`,
+        `Filial: ${filial || '-'}`,
+        `Valor estimado: R$ ${Number(valorTotal || 0).toFixed(2)}`,
+        linkServico(id),
+    ].join('\n');
+    const resultado = await enviarWhatsapp(FONE_SERVICOS.financeiro(), texto);
+    if (!resultado.ok) logger.warn(`[whatsapp] Aviso de análise financeira (serviço ${id}) não enviado: ${resultado.error}`);
+    return resultado;
+}
+
+module.exports = {
+    enviarWhatsapp,
+    avisarNovaAprovacao,
+    avisarAprovacaoParaDiego,
+    linkPortal,
+    avisarServicoAguardandoCeo,
+    avisarServicoAnaliseDiretor,
+    avisarServicoAnaliseFinanceira,
+};

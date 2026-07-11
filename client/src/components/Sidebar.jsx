@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse } from 'lucide-react';
+import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse, Wrench, ListChecks } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -13,6 +13,7 @@ const NAV_BASE = [
     { to: '/produtos-vp', icon: Boxes, label: 'Produtos VerticalParts' },
     { to: '/outros-fornecedores', icon: Store, label: 'Outros Fornecedores' },
     { to: '/aprovacoes', icon: ClipboardCheck, label: 'Aprovações' },
+    { to: '/requisicao-servicos', icon: Wrench, label: 'Requisição Serviços' },
     { to: '/history', icon: Package, label: 'Histórico de Pedidos' },
     { to: '/sem-estoque', icon: PackageX, label: 'Peças Sem Estoque', badge: true },
     { to: '/estoque-vp', icon: Warehouse, label: 'Estoque VerticalParts' },
@@ -23,6 +24,7 @@ const NAV_BASE = [
 const NAV_ADMIN = [
     { to: '/logs', icon: ScrollText, label: 'Logs' },
     { to: '/usuarios/convidar', icon: UserPlus, label: 'Convidar Usuário' },
+    { to: '/requisicao-servicos/lpu', icon: ListChecks, label: 'Catálogo de Serviços (LPU)' },
 ];
 
 export default function Sidebar({ logout }) {
