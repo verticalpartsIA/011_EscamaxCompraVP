@@ -558,12 +558,18 @@ exports.incluirPedidoVenda = async ({ cnpjCliente, itens, numeroPedidoCliente, o
     const itensFormatados = [];
     for (const item of itens) {
         const idVP = await buscarIdPorCodigo(item.codigo, 'VP');
-        if (!idVP) continue;
+        if (!idVP) {
+            // Antes o item era descartado com `continue` e o pedido seguia sem ele — o Pedido
+            // de Compra na filial (já criado no passo anterior) e o Pedido de Venda na VP
+            // acabavam com conjuntos de itens diferentes, sem nenhum erro visível. Agora aborta:
+            // o catch do chamador aciona a compensação (cancela a compra) em vez de deixar as
+            // duas contabilidades divergentes.
+            throw new Error(`Omie: produto ${item.codigo} não encontrado/clonado na VerticalParts — pedido de venda abortado para não divergir do Pedido de Compra.`);
+        }
 
         const nValUnit = item.preco_unitario || item.preco_original || item.preco || null;
         if (!nValUnit || nValUnit <= 0) {
-            logger.warn(`Omie: Produto ${item.codigo} sem preço unitário válido para venda (preco=${nValUnit}) — item ignorado`);
-            continue;
+            throw new Error(`Omie: produto ${item.codigo} sem preço unitário válido para venda (preco=${nValUnit}) — pedido de venda abortado.`);
         }
 
         itensFormatados.push({
@@ -691,9 +697,11 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
         logger.info(`Omie: Buscando produto ${item.codigo} para ${unidade}...`);
         const idFilial = await buscarIdPorCodigo(item.codigo, unidade);
         if (!idFilial) {
-            logger.error(`Omie: ITEM IGNORADO - Produto ${item.codigo} não encontrado e não pôde ser clonado para ${unidade}. Verifique se o produto existe na VP e se tem código de integração correto.`);
-            console.error(`[BACKEND ERROR] Item ignorado no Pedido de Compra: ${item.codigo} — produto não localizado em ${unidade}`);
-            continue;
+            // Antes o item era descartado com `continue` e a Requisição de Compra seguia sem
+            // ele — divergindo do Pedido de Venda VP (criado com todos os itens). Agora aborta
+            // antes de enviar qualquer coisa à Omie: nenhuma das duas pontas chega a ser criada
+            // com um subconjunto diferente de itens.
+            throw new Error(`Omie: produto ${item.codigo} não encontrado e não pôde ser clonado para ${unidade}. Verifique se o produto existe na VP e se tem código de integração correto.`);
         }
         logger.info(`Omie: Produto ${item.codigo} encontrado em ${unidade} com ID: ${idFilial}`);
 
@@ -705,8 +713,7 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
         // Preço unitário: usa preco_unitario (VP custo) ou fallbacks
         const nValUnit = item.preco_unitario || item.preco_original || item.preco || null;
         if (!nValUnit || nValUnit <= 0) {
-            logger.warn(`Omie: Produto ${item.codigo} sem preço unitário (preco=${nValUnit}) — item ignorado na requisição de compra`);
-            continue;
+            throw new Error(`Omie: produto ${item.codigo} sem preço unitário (preco=${nValUnit}) — requisição de compra abortada.`);
         }
 
         itensFormatados.push({
