@@ -116,11 +116,20 @@ async function buscarFornecedor(id) {
 }
 
 // ── Solicitations (requisições de serviço) ──
-async function listarSolicitations({ filtroRequesterId, filtroBranchId, filtroStatusIn } = {}) {
+// filtroOrRequesterBranch: usado pelo gerente_filial — precisa ver as próprias
+// requisições E as da sua filial (OR, não AND), por isso é tratado à parte
+// via o filtro "or=(...)" do PostgREST em vez dos params AND normais.
+async function listarSolicitations({ filtroRequesterId, filtroBranchId, filtroStatusIn, filtroOrRequesterBranch } = {}) {
     const params = new URLSearchParams({ select: '*', order: 'created_at.desc' });
     if (filtroRequesterId) params.set('requester_id', `eq.${filtroRequesterId}`);
     if (filtroBranchId) params.set('branch_id', `eq.${filtroBranchId}`);
     if (filtroStatusIn) params.set('status', `in.(${filtroStatusIn.join(',')})`);
+    if (filtroOrRequesterBranch) {
+        const { requesterId, branchId } = filtroOrRequesterBranch;
+        const condicoes = [`requester_id.eq.${requesterId}`];
+        if (branchId) condicoes.push(`branch_id.eq.${branchId}`);
+        params.set('or', `(${condicoes.join(',')})`);
+    }
     return req(`/rest/v1/solicitations?${params}`);
 }
 
