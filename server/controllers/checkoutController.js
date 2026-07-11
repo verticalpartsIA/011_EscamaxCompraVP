@@ -17,7 +17,7 @@ async function saveOrder(entry) {
 
 exports.preflight = async (req, res) => {
     try {
-        const resultado = validarCheckoutPreflight(req.body);
+        const resultado = await validarCheckoutPreflight(req.body);
         res.json(resultado);
     } catch (error) {
         res.status(400).json({ ok: false, error: error.message });
@@ -49,7 +49,7 @@ exports.processar = async (req, res) => {
 
     let preflight;
     try {
-        preflight = validarCheckoutPreflight(req.body);
+        preflight = await validarCheckoutPreflight(req.body);
     } catch (error) {
         return res.status(400).json({ error: error.message });
     }
