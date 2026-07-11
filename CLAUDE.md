@@ -52,7 +52,12 @@
 - Tabela populada via sync com a API Omie VP (`ListarProdutos`)
 - Sync automático 4x/dia via `node-cron` (06h, 12h, 18h, 23h)
 - Botão "Sincronizar Agora" chama `POST /api/produtos-vp/sync` (requer JWT)
-- **BUG PENDENTE**: campo `quantidade_estoque` (Omie) está sendo lido mas todos os produtos aparecem com estoque 0 — a Omie pode não usar este módulo de estoque
+- **Saldo de estoque (corrigido em 11/07/2026)**: o campo `estoque_atual` de `omie_produtos` vem furado do
+  `ListarProdutos` (0/negativo pra quase tudo) e NÃO é mais usado na UI. Fonte de verdade do saldo:
+  tabela `estoque_vp` (`estoque_disponivel`), populada de hora em hora pela Edge Function
+  `sync-estoque-vp` (`ListarPosEstoque`). Helper no frontend: `client/src/lib/estoqueVP.js`.
+  No backend, `server/services/estoqueService.js` valida saldo no preflight, no checkout e na aprovação
+  final — política: **bloquear** item sem saldo (prefixos rastreados: VPEL/VPER/VPB; fora deles só warning).
 
 ### Carrinho + Checkout
 - CartSidebar existente com campos: finalidade, prioridade, tipo de frete, pagamento
@@ -60,6 +65,11 @@
 - Endpoint: `POST /api/checkout/processar` (requer JWT)
 - `checkoutController.js` → chama `omieClient.incluirRequisicaoCompra()` (filial) e `omieClient.incluirPedidoVenda()` (VP)
 - `omieClient.js` → `ACQUIRE_KEYS(unidade)` lê as chaves Omie do `.env` por filial
+- **Hardening (11/07/2026)**: (1) item que não pode entrar no pedido (não encontrado/não clonável/sem
+  preço) **aborta o pedido inteiro** em vez de seguir sem o item — compra e venda nunca divergem do
+  carrinho; (2) validação de saldo (`estoqueService.js`) no preflight/checkout/aprovação; (3) teto de
+  quantidade por item (`CHECKOUT_QTD_MAX_ITEM`, default 1000); (4) rate-limit de login: 5 falhas do
+  mesmo e-mail em 15 min bloqueiam por 15 min (`LOGIN_MAX_FALHAS`/`LOGIN_JANELA_MINUTOS`).
 
 ### Backend Omie
 - `server/services/omieClient.js` — toda a lógica de chamada à Omie (VP + filiais)
@@ -116,10 +126,9 @@
    - Verificar logs do backend para erros de Omie
    - Endpoint de diagnóstico: `GET /api/checkout/diag?unidade=BRASILIA`
 
-3. **Estoque real** — o campo `quantidade_estoque` da `ListarProdutos` está zerado para todos os produtos VP
-   - Tentamos `PosicaoEstoque` mas é por produto individual (sem bulk)
-   - Tentamos `ListarPosEstoque` com parâmetros `nPagina/nRegPorPagina/dDataPosicao` — pode funcionar mas fomos rate-limitados
-   - Endpoint correto para estoque bulk: `estoque/consulta/` call `ListarPosEstoque` (verificar nome exato do call)
+3. ~~**Estoque real**~~ — RESOLVIDO em 11/07/2026: catálogo, checkout e split multi-vendor agora usam a
+   tabela `estoque_vp` (sync horária via Edge Function `sync-estoque-vp` / `ListarPosEstoque`), com
+   bloqueio de venda sem saldo no backend (`estoqueService.js`) e na UI. Ver Relatorio/2026_07_11_caca_bugs_mcp.md §9.
 
 ### Prioridade Média
 4. **Resend API Key** — sem ela o OTP não chega por email (funciona pelo console do servidor e pelo backdoor 123456)

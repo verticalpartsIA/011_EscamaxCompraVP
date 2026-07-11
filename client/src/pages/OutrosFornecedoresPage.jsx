@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRightLeft, CheckCircle2, Lock, PackageSearch, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { fetchEstoqueVPMap, juntarEstoque } from '../lib/estoqueVP';
 
 const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
@@ -8,17 +9,23 @@ const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const moeda = valor => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(valor || 0));
 const numero = valor => Number(valor || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
+// Produto vem do catálogo omie_produtos; o SALDO vem da tabela estoque_vp
+// (fonte correta) — o estoque_atual do catálogo é furado e distorceria o split.
 async function buscarProdutoVP(codigo) {
-    const query = `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,estoque_atual,valor_unitario&ativo=eq.true&codigo=eq.${encodeURIComponent(codigo)}&limit=1`;
-    const resp = await fetch(query, {
-        headers: {
-            apikey: SUPABASE_ANON,
-            Authorization: `Bearer ${SUPABASE_ANON}`,
-        },
-    });
+    const query = `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,valor_unitario&ativo=eq.true&codigo=eq.${encodeURIComponent(codigo)}&limit=1`;
+    const [resp, mapaEstoque] = await Promise.all([
+        fetch(query, {
+            headers: {
+                apikey: SUPABASE_ANON,
+                Authorization: `Bearer ${SUPABASE_ANON}`,
+            },
+        }),
+        fetchEstoqueVPMap(),
+    ]);
     if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
     const rows = await resp.json();
-    return rows[0] || null;
+    if (!rows[0]) return null;
+    return juntarEstoque(rows, mapaEstoque)[0];
 }
 
 function Field({ label, children }) {
@@ -57,7 +64,7 @@ export default function OutrosFornecedoresPage({
 
     const quantidadeDesejada = Number(form.quantidade || 0);
     const precoConcorrente = Number(form.precoConcorrente || 0);
-    const estoqueVP = Number(produtoVP?.estoque_atual || 0);
+    const estoqueVP = Number(produtoVP?.estoque_disponivel || 0);
     const precoVP = Number(produtoVP?.valor_unitario || 0);
     const quantidadeVP = produtoVP ? Math.min(Math.max(estoqueVP, 0), Math.max(quantidadeDesejada, 0)) : 0;
     const quantidadeFornecedor = produtoVP ? Math.max(quantidadeDesejada - quantidadeVP, 0) : 0;
@@ -147,7 +154,7 @@ export default function OutrosFornecedoresPage({
                 unidade: produtoVP.unidade,
                 preco: produtoVP.valor_unitario,
                 preco_original: produtoVP.valor_unitario,
-                estoque: produtoVP.estoque_atual,
+                estoque: produtoVP.estoque_disponivel,
                 quantity: quantidadeVP,
             });
         }

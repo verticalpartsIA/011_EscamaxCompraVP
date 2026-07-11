@@ -555,14 +555,21 @@ exports.incluirPedidoVenda = async ({ cnpjCliente, itens, numeroPedidoCliente, o
     logger.info(`Conta selecionada: ${nomeConta} (ID: ${codContaCorrente})`);
 
     // 2. Monta os itens (precisa do codigo_produto_omie da VP)
+    // Se QUALQUER item não puder entrar, o pedido inteiro aborta: um Pedido de
+    // Venda parcial silencioso divergiria do Pedido de Compra da filial e
+    // quebraria a premissa "Contas a Pagar filial = Contas a Receber VP".
     const itensFormatados = [];
+    const itensDescartadosVenda = [];
     for (const item of itens) {
         const idVP = await buscarIdPorCodigo(item.codigo, 'VP');
-        if (!idVP) continue;
+        if (!idVP) {
+            itensDescartadosVenda.push(`${item.codigo} (produto não encontrado na VerticalParts)`);
+            continue;
+        }
 
         const nValUnit = item.preco_unitario || item.preco_original || item.preco || null;
         if (!nValUnit || nValUnit <= 0) {
-            logger.warn(`Omie: Produto ${item.codigo} sem preço unitário válido para venda (preco=${nValUnit}) — item ignorado`);
+            itensDescartadosVenda.push(`${item.codigo} (sem preço unitário válido: ${nValUnit})`);
             continue;
         }
 
@@ -577,6 +584,16 @@ exports.incluirPedidoVenda = async ({ cnpjCliente, itens, numeroPedidoCliente, o
             }
         });
     }
+
+    if (itensDescartadosVenda.length > 0) {
+        const detalhe = itensDescartadosVenda.join('; ');
+        logger.error(`Omie: Pedido de Venda VP abortado — itens que não puderam ser incluídos: ${detalhe}`);
+        throw new Error(`Pedido de Venda abortado para não divergir do Pedido de Compra. Itens com problema: ${detalhe}`);
+    }
+    if (itensFormatados.length === 0) {
+        throw new Error('Nenhum item válido para criar o Pedido de Venda na VerticalParts.');
+    }
+
     // Identificador único para evitar erro "ID não informado"
     const integrationId = `ESC-${Date.now()}`;
 
@@ -680,7 +697,11 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
     if (!codFornecedor) throw new Error(`Fornecedor ${cnpjFornecedor} não encontrado na unidade ${unidade}. Verifique se a VerticalParts está cadastrada como Cliente/Fornecedor.`);
 
     // 2. Monta os itens (precisa do codigo_produto_omie da Filial)
+    // Item que não pôde ser localizado/clonado ABORTA o pedido inteiro — antes o
+    // código seguia sem o item (continue) e a compra saía divergente do carrinho
+    // e da venda VP, sem nenhum erro visível ao usuário.
     const itensFormatados = [];
+    const itensDescartadosCompra = [];
     logger.info(`Omie: Montando ${itens.length} itens para Requisição de Compra em ${unidade}`);
 
     // Usa o cache em memória para IPI — sem chamar listarTodos() (evita ListarProdutos + ListarPosEstoque)
@@ -691,8 +712,8 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
         logger.info(`Omie: Buscando produto ${item.codigo} para ${unidade}...`);
         const idFilial = await buscarIdPorCodigo(item.codigo, unidade);
         if (!idFilial) {
-            logger.error(`Omie: ITEM IGNORADO - Produto ${item.codigo} não encontrado e não pôde ser clonado para ${unidade}. Verifique se o produto existe na VP e se tem código de integração correto.`);
-            console.error(`[BACKEND ERROR] Item ignorado no Pedido de Compra: ${item.codigo} — produto não localizado em ${unidade}`);
+            logger.error(`Omie: Produto ${item.codigo} não encontrado e não pôde ser clonado para ${unidade}. Verifique se o produto existe na VP e se tem código de integração correto.`);
+            itensDescartadosCompra.push(`${item.codigo} (não encontrado/clonável em ${unidade})`);
             continue;
         }
         logger.info(`Omie: Produto ${item.codigo} encontrado em ${unidade} com ID: ${idFilial}`);
@@ -705,7 +726,7 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
         // Preço unitário: usa preco_unitario (VP custo) ou fallbacks
         const nValUnit = item.preco_unitario || item.preco_original || item.preco || null;
         if (!nValUnit || nValUnit <= 0) {
-            logger.warn(`Omie: Produto ${item.codigo} sem preço unitário (preco=${nValUnit}) — item ignorado na requisição de compra`);
+            itensDescartadosCompra.push(`${item.codigo} (sem preço unitário válido: ${nValUnit})`);
             continue;
         }
 
@@ -717,6 +738,11 @@ exports.incluirRequisicaoCompra = async ({ unidade, cnpjFornecedor, itens, tipoF
         });
     }
 
+    if (itensDescartadosCompra.length > 0) {
+        const detalhe = itensDescartadosCompra.join('; ');
+        logger.error(`Omie: Pedido de Compra em ${unidade} abortado — itens que não puderam ser incluídos: ${detalhe}`);
+        throw new Error(`Pedido de Compra abortado para não divergir do carrinho. Itens com problema: ${detalhe}`);
+    }
     if (itensFormatados.length === 0) {
         logger.error(`Omie: Nenhum item válido para incluir na Requisição de Compra em ${unidade}`);
         throw new Error('Nenhum item válido encontrado para criar o pedido de compra na filial');
