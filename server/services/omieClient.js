@@ -1,6 +1,7 @@
 const axios = require('axios');
 const logger = require('../utils/logger');
 const { etapaVendaProdutoVP } = require('./omieStages');
+const { keepAliveAgent } = require('../utils/httpAgent');
 
 const OMIE_API_URL = 'https://app.omie.com.br/api/v1/';
 
@@ -8,6 +9,7 @@ const omieHttp = axios.create({
     baseURL: OMIE_API_URL,
     headers: { 'Content-Type': 'application/json' },
     timeout: 120000,
+    httpsAgent: keepAliveAgent,
 });
 
 const appKeyVP = () => process.env.OMIE_APP_KEY;
@@ -73,7 +75,8 @@ async function omiePost(endpoint, call, param, unidade = 'VP', _tentativa = 1) {
             param: [param],
         }, {
             timeout: 120000,
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            httpsAgent: keepAliveAgent,
         });
         console.log(`[BACKEND] Omie Success: ${call}`);
         return data;

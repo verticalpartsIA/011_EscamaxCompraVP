@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const logger = require('../utils/logger');
 
 // Validação de estoque no checkout, lendo a tabela `estoque_vp` do Supabase

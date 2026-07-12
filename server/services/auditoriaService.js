@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const logger = require('../utils/logger');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hhgvlcskxopryqvhofsg.supabase.co';

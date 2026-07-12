@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const logger = require('../utils/logger');
 const { ALCADAS_PRODUTOS } = require('./approvalEngine');
 
