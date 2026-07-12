@@ -27,8 +27,12 @@ function escopoVisibilidade(profile) {
     if (profile.role === 'financeiro') {
         return { filtroStatusIn: ['aprovado_diretor', 'em_analise_financeiro', 'ajuste_pagamento', 'aprovado', 'rejeitado', 'cancelado'] };
     }
-    // gerente_filial (ou papel desconhecido): só as próprias requisições.
-    return { filtroRequesterId: profile.id };
+    // gerente_filial (ou papel desconhecido): as próprias requisições OU
+    // qualquer requisição da própria filial (5 filiais Escamax) — cada
+    // filial precisa ver as requisições da filial, não só as que ela mesma
+    // abriu (bug corrigido em 11/07/2026, faltava o "OR branch_id" da RLS
+    // original).
+    return { filtroOrRequesterBranch: { requesterId: profile.id, branchId: profile.branch_id || null } };
 }
 
 exports.listar = async (req, res) => {
@@ -50,6 +54,7 @@ exports.obter = async (req, res) => {
         const podeVer = profile.role === 'admin'
             || profile.role === 'diretor_comercial'
             || solicitation.requester_id === profile.id
+            || (profile.role === 'gerente_filial' && profile.branch_id && solicitation.branch_id === profile.branch_id)
             || (profile.role === 'financeiro' && ['aprovado_diretor', 'em_analise_financeiro', 'ajuste_pagamento', 'aprovado', 'rejeitado', 'cancelado'].includes(solicitation.status));
         if (!podeVer) return res.status(403).json({ error: 'Sem permissão para ver esta requisição.' });
 
