@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PackageX, RefreshCw, AlertTriangle, Search } from 'lucide-react';
+import { fetchEstoqueVPMap, juntarEstoque } from '../lib/estoqueVP';
 
 const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
@@ -12,20 +13,26 @@ function getCodigoVP(produto) {
     return codigo;
 }
 
-// Mesma fonte de dados da página "Produtos VerticalParts" (tabela sincronizada
-// omie_produtos), filtrando só os itens com estoque zerado ou negativo.
+// Catálogo vem de omie_produtos; o SALDO vem da tabela estoque_vp (fonte
+// correta, sincronizada da Omie). Filtra aqui os itens rastreados com saldo
+// disponível zerado ou negativo — o estoque_atual do catálogo é furado.
 async function fetchSemEstoque() {
-    const resp = await fetch(
-        `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,estoque_atual,valor_unitario,updated_at&ativo=eq.true&codigo=ilike.VP*&codigo=not.ilike.VPCON*&codigo=not.ilike.VPIN*&estoque_atual=lte.0&order=descricao.asc&limit=2000`,
-        {
-            headers: {
-                'apikey': SUPABASE_ANON,
-                'Authorization': `Bearer ${SUPABASE_ANON}`,
-            },
-        }
-    );
+    const [resp, mapaEstoque] = await Promise.all([
+        fetch(
+            `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,valor_unitario,updated_at&ativo=eq.true&codigo=ilike.VP*&codigo=not.ilike.VPCON*&codigo=not.ilike.VPIN*&order=descricao.asc&limit=2000`,
+            {
+                headers: {
+                    'apikey': SUPABASE_ANON,
+                    'Authorization': `Bearer ${SUPABASE_ANON}`,
+                },
+            }
+        ),
+        fetchEstoqueVPMap(),
+    ]);
     if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
-    return resp.json();
+    const produtos = await resp.json();
+    return juntarEstoque(produtos, mapaEstoque)
+        .filter(p => p.estoque_disponivel !== null && p.estoque_disponivel <= 0);
 }
 
 export default function PecasSemEstoquePage() {
@@ -137,7 +144,7 @@ export default function PecasSemEstoquePage() {
                                     </td>
                                     <td className="px-5 py-3 text-center">
                                         <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
-                                            {Number(p.estoque_atual).toLocaleString('pt-BR')}
+                                            {Number(p.estoque_disponivel).toLocaleString('pt-BR')}
                                         </span>
                                     </td>
                                 </tr>

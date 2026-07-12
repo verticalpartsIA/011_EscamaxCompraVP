@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');

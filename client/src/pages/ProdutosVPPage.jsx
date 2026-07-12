@@ -4,6 +4,7 @@ import {
     Lock, ShoppingCart, Plus, CheckCircle2, Loader2, XCircle, Tag,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { fetchEstoqueVPMap, juntarEstoque } from '../lib/estoqueVP';
 
 const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
@@ -16,18 +17,24 @@ function getCodigoVP(produto) {
     return codigo;
 }
 
+// Catálogo vem de omie_produtos; o SALDO vem da tabela estoque_vp (fonte
+// correta, sincronizada da Omie) — o estoque_atual do catálogo é furado.
 async function fetchProdutos() {
-    const resp = await fetch(
-        `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,estoque_atual,valor_unitario,updated_at&ativo=eq.true&codigo=ilike.VP*&codigo=not.ilike.VPCON*&codigo=not.ilike.VPIN*&order=descricao.asc&limit=1000`,
-        {
-            headers: {
-                'apikey': SUPABASE_ANON,
-                'Authorization': `Bearer ${SUPABASE_ANON}`,
+    const [respProdutos, mapaEstoque] = await Promise.all([
+        fetch(
+            `${SUPABASE_URL}/rest/v1/omie_produtos?select=codigo_produto,codigo,descricao,unidade,valor_unitario,updated_at&ativo=eq.true&codigo=ilike.VP*&codigo=not.ilike.VPCON*&codigo=not.ilike.VPIN*&order=descricao.asc&limit=1000`,
+            {
+                headers: {
+                    'apikey': SUPABASE_ANON,
+                    'Authorization': `Bearer ${SUPABASE_ANON}`,
+                }
             }
-        }
-    );
-    if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
-    return resp.json();
+        ),
+        fetchEstoqueVPMap(),
+    ]);
+    if (!respProdutos.ok) throw new Error(`Supabase ${respProdutos.status}`);
+    const produtos = await respProdutos.json();
+    return juntarEstoque(produtos, mapaEstoque);
 }
 
 async function triggerSync(token) {
@@ -274,7 +281,7 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
             unidade: produto.unidade,
             preco: produto.valor_unitario,
             preco_original: produto.valor_unitario,
-            estoque: produto.estoque_atual,
+            estoque: produto.estoque_disponivel,
         });
         // Feedback visual breve
         setAddedCodes(prev => new Set([...prev, produto.codigo_produto]));
@@ -305,7 +312,7 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
             : String(bv).localeCompare(String(av));
     });
 
-    const estoqueZero = sorted.filter(p => p.estoque_atual <= 0).length;
+    const estoqueZero = sorted.filter(p => p.estoque_disponivel !== null && p.estoque_disponivel <= 0).length;
     const totalNoCarrinho = cart.reduce((s, i) => s + i.quantity, 0);
 
     return (
@@ -424,7 +431,7 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
                                         { key: 'codigo', label: 'Código VP' },
                                         { key: 'descricao',      label: 'Descrição' },
                                         { key: 'unidade',        label: 'Un.' },
-                                        { key: 'estoque_atual',  label: 'Estoque' },
+                                        { key: 'estoque_disponivel', label: 'Estoque' },
                                         { key: 'valor_unitario', label: 'Valor Unit.' },
                                     ].map(({ key, label }) => (
                                         <th
@@ -448,7 +455,8 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
                                     const codigoSku = getCodigoVP(p);
                                     const jaAdicionado = addedCodes.has(p.codigo_produto);
                                     const qtdNoCarrinho = cart.find(i => i.codigo === codigoSku)?.quantity || 0;
-                                    const podeAdicionar = validacaoCarrinho?.validado && codigoSku;
+                                    const semEstoque = p.estoque_disponivel !== null && p.estoque_disponivel <= 0;
+                                    const podeAdicionar = validacaoCarrinho?.validado && codigoSku && !semEstoque;
 
                                     return (
                                         <tr key={p.codigo_produto} className="hover:bg-neutral-50 transition-colors">
@@ -460,13 +468,22 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
                                             </td>
                                             <td className="px-4 py-3 text-neutral-500">{p.unidade}</td>
                                             <td className="px-4 py-3">
-                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                                    p.estoque_atual > 0
-                                                        ? 'bg-green-50 text-green-700'
-                                                        : 'bg-red-50 text-red-600'
-                                                }`}>
-                                                    {Number(p.estoque_atual).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
-                                                </span>
+                                                {p.estoque_disponivel === null ? (
+                                                    <span
+                                                        title="Código sem rastreio de saldo"
+                                                        className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-400"
+                                                    >
+                                                        —
+                                                    </span>
+                                                ) : (
+                                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                                        p.estoque_disponivel > 0
+                                                            ? 'bg-green-50 text-green-700'
+                                                            : 'bg-red-50 text-red-600'
+                                                    }`}>
+                                                        {Number(p.estoque_disponivel).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
+                                                    </span>
+                                                )}
                                             </td>
                                             <td className="px-4 py-3 text-neutral-700">
                                                 {Number(p.valor_unitario).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
@@ -498,11 +515,11 @@ export default function ProdutosVPPage({ cart = [], addToCart, finalidade, setFi
                                                     </button>
                                                 ) : (
                                                     <span
-                                                        title="Informe o pedido de venda para liberar"
+                                                        title={semEstoque ? 'Produto sem estoque disponível' : 'Informe o pedido de venda para liberar'}
                                                         className="inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-bold text-neutral-300 cursor-not-allowed"
                                                     >
                                                         <Lock className="h-3.5 w-3.5" />
-                                                        Bloqueado
+                                                        {semEstoque ? 'Sem estoque' : 'Bloqueado'}
                                                     </span>
                                                 )}
                                             </td>

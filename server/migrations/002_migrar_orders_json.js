@@ -3,7 +3,7 @@
 // Idempotente (upsert por id) — pode ser reexecutada sem duplicar.
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const path = require('path');
 const fs = require('fs');
 

@@ -52,7 +52,12 @@
 - Tabela populada via sync com a API Omie VP (`ListarProdutos`)
 - Sync automático 4x/dia via `node-cron` (06h, 12h, 18h, 23h)
 - Botão "Sincronizar Agora" chama `POST /api/produtos-vp/sync` (requer JWT)
-- **BUG PENDENTE**: campo `quantidade_estoque` (Omie) está sendo lido mas todos os produtos aparecem com estoque 0 — a Omie pode não usar este módulo de estoque
+- **Saldo de estoque (corrigido em 11/07/2026)**: o campo `estoque_atual` de `omie_produtos` vem furado do
+  `ListarProdutos` (0/negativo pra quase tudo) e NÃO é mais usado na UI. Fonte de verdade do saldo:
+  tabela `estoque_vp` (`estoque_disponivel`), populada de hora em hora pela Edge Function
+  `sync-estoque-vp` (`ListarPosEstoque`). Helper no frontend: `client/src/lib/estoqueVP.js`.
+  No backend, `server/services/estoqueService.js` valida saldo no preflight, no checkout e na aprovação
+  final — política: **bloquear** item sem saldo (prefixos rastreados: VPEL/VPER/VPB; fora deles só warning).
 
 ### Carrinho + Checkout
 - CartSidebar existente com campos: finalidade, prioridade, tipo de frete, pagamento
@@ -60,6 +65,11 @@
 - Endpoint: `POST /api/checkout/processar` (requer JWT)
 - `checkoutController.js` → chama `omieClient.incluirRequisicaoCompra()` (filial) e `omieClient.incluirPedidoVenda()` (VP)
 - `omieClient.js` → `ACQUIRE_KEYS(unidade)` lê as chaves Omie do `.env` por filial
+- **Hardening (11/07/2026)**: (1) item que não pode entrar no pedido (não encontrado/não clonável/sem
+  preço) **aborta o pedido inteiro** em vez de seguir sem o item — compra e venda nunca divergem do
+  carrinho; (2) validação de saldo (`estoqueService.js`) no preflight/checkout/aprovação; (3) teto de
+  quantidade por item (`CHECKOUT_QTD_MAX_ITEM`, default 1000); (4) rate-limit de login: 5 falhas do
+  mesmo e-mail em 15 min bloqueiam por 15 min (`LOGIN_MAX_FALHAS`/`LOGIN_JANELA_MINUTOS`).
 
 ### Backend Omie
 - `server/services/omieClient.js` — toda a lógica de chamada à Omie (VP + filiais)
@@ -84,6 +94,40 @@
 - Página `/logs` (admin-only): cada log pode ter uma thread de observação (`log_observacoes`) — só quem tem
   `alcada_nivel = 3` (hoje, Diego) pode **abrir** uma indagação; depois de aberta, qualquer participante da
   conversa pode responder (réplica/tréplica), sem e-mail fixo hardcoded no código.
+
+### Requisição de Serviços — contratação de serviço terceirizado (11/07/2026)
+- Módulo nativo migrado do protótipo `admescamax/approval-hub` (Lovable) — reescrito 100% como
+  código próprio (sem TypeScript/shadcn/Lovable, no padrão JS/Tailwind do resto do `client/`).
+  Nenhum vestígio da Lovable neste repositório (sem `lovable-tagger`, sem comentários/config dela).
+- **Propósito**: controle financeiro da matriz (VerticalParts) sobre gastos da Escamax com
+  fornecedores terceirizados de serviço (não é peça VP — usa seu próprio catálogo de preços `lpu`,
+  separado de `omie_produtos`). Cliente final e fornecedor terceirizado são CNPJs distintos
+  (`clients`/`suppliers`, upsert por CNPJ via BrasilAPI), sem relação com o Omie.
+- **Backend Express** (`server/routes/servicos.js`, `controllers/servicosController.js`,
+  `services/servicosService.js` + `servicoApprovalEngine.js`) — mesmo padrão do checkout de peças:
+  todas as escritas passam pelo Node com a Supabase service key (sem RLS client-side, sem sessão
+  Supabase no frontend). Tabelas já existiam no mesmo projeto Supabase (`branches`, `profiles`,
+  `lpu`, `solicitations`, `solicitation_items`, `solicitation_comments`, `solicitation_attachments`,
+  `clients`, `suppliers`) — provisionadas antes desta branch, já com as 5 filiais e os mesmos
+  usuários da tabela `usuarios`.
+- **Papéis do módulo** vêm de `profiles.role` (admin/gerente_filial/diretor_comercial/financeiro) —
+  é uma tabela diferente de `usuarios` (alçadas de peças), mesmo Supabase Auth por baixo.
+- **Gatilho de segurança (gate do CEO)**: toda requisição, ao ser enviada (ou reenviada após ajuste
+  do solicitante), entra obrigatoriamente em `aguardando_ceo` antes de seguir para diretor comercial
+  e financeiro. Aprovador designado via `.env` (`SERVICOS_CEO_EMAIL`, hoje `adm@escamax.com.br` —
+  Diego). Não aceita qualquer admin como substituto: é um aprovador nomeado, não um papel.
+- Fluxo completo: `rascunho → aguardando_ceo → analise_diretor → aprovado_diretor →
+  em_analise_financeiro → aprovado` (com `ajuste_solicitante`/`ajuste_pagamento`/`rejeitado`/
+  `cancelado` como desvios). Migração `server/migrations/004_servicos_status_ceo.sql`.
+- Aviso de WhatsApp por etapa (CEO/diretor/financeiro) em `whatsappNotifier.js`
+  (`WHATSAPP_FONE_SERVICOS_CEO/DIRETOR/FINANCEIRO`, com fallback pros fones já usados no fluxo de peças).
+- Sidebar: item **"Requisição Serviços"**; LPU (catálogo de preços) fica em admin, sub-item separado.
+- **Limpeza de schema**: removidas as 9 tabelas do protótipo abandonado em inglês (`requests`,
+  `request_items`, `request_comments`, `request_history`, `request_attachments`, `payment_records`,
+  `approval_limits`, `audit_logs`, `lpu_services`) — nenhum código as referenciava. `clients` e
+  `suppliers` foram mantidas: são usadas de verdade por `solicitations.client_id`/`supplier_id`.
+- **Não testado em produção real** (sem a service key real neste ambiente de sessão) — recomendo
+  um teste-piloto manual (rascunho → enviar → decisão do CEO) antes de considerar confiável.
 
 ### Backend em produção (Hostinger, cPanel/Passenger)
 - Deploy do **frontend** é automático via GitHub → Hostinger (Vite build, `client/` como raiz).
@@ -116,10 +160,9 @@
    - Verificar logs do backend para erros de Omie
    - Endpoint de diagnóstico: `GET /api/checkout/diag?unidade=BRASILIA`
 
-3. **Estoque real** — o campo `quantidade_estoque` da `ListarProdutos` está zerado para todos os produtos VP
-   - Tentamos `PosicaoEstoque` mas é por produto individual (sem bulk)
-   - Tentamos `ListarPosEstoque` com parâmetros `nPagina/nRegPorPagina/dDataPosicao` — pode funcionar mas fomos rate-limitados
-   - Endpoint correto para estoque bulk: `estoque/consulta/` call `ListarPosEstoque` (verificar nome exato do call)
+3. ~~**Estoque real**~~ — RESOLVIDO em 11/07/2026: catálogo, checkout e split multi-vendor agora usam a
+   tabela `estoque_vp` (sync horária via Edge Function `sync-estoque-vp` / `ListarPosEstoque`), com
+   bloqueio de venda sem saldo no backend (`estoqueService.js`) e na UI. Ver Relatorio/2026_07_11_caca_bugs_mcp.md §9.
 
 ### Prioridade Média
 4. **Resend API Key** — sem ela o OTP não chega por email (funciona pelo console do servidor e pelo backdoor 123456)

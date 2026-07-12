@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const omieClient = require('./omieClient');
 const logger = require('../utils/logger');
 

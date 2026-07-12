@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const authMiddleware = require('../middleware/authMiddleware');
 const { sincronizarFilial, sincronizarTodasFiliais, FILIAIS } = require('../services/comprasHistoricoSync');
 

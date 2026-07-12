@@ -18,6 +18,10 @@ function calcularTotalCarrinho(itens = []) {
     }, 0));
 }
 
+// Teto de sanidade por item — evita erro de digitação virar pedido (já houve
+// pedido real com quantidade 28.300 de um item). Ajustável via .env.
+const QTD_MAXIMA_POR_ITEM = () => Number(process.env.CHECKOUT_QTD_MAX_ITEM || 1000);
+
 function validarItens(itens = []) {
     if (!Array.isArray(itens) || itens.length === 0) {
         throw new Error('Unidade e itens são obrigatórios');
@@ -28,6 +32,13 @@ function validarItens(itens = []) {
     });
     if (invalidos.length > 0) {
         throw new Error('Todos os itens precisam de código, quantidade positiva e preço unitário positivo.');
+    }
+
+    const qtdMax = QTD_MAXIMA_POR_ITEM();
+    const acimaDoTeto = itens.filter(item => Number(item.quantidade || 0) > qtdMax);
+    if (acimaDoTeto.length > 0) {
+        const lista = acimaDoTeto.map(i => `${i.codigo} (${i.quantidade})`).join('; ');
+        throw new Error(`Quantidade acima do limite de ${qtdMax} por item: ${lista}. Verifique se não houve erro de digitação.`);
     }
 }
 

@@ -13,6 +13,10 @@ import EstoqueVPPage from './pages/EstoqueVPPage';
 import EstoqueEscamaxPage from './pages/EstoqueEscamaxPage';
 import OutrosFornecedoresPage from './pages/OutrosFornecedoresPage';
 import AprovacoesPage from './pages/AprovacoesPage';
+import RequisicaoServicosPage from './pages/RequisicaoServicosPage';
+import RequisicaoServicoNovaPage from './pages/RequisicaoServicoNovaPage';
+import RequisicaoServicoDetalhePage from './pages/RequisicaoServicoDetalhePage';
+import ServicoLpuPage from './pages/ServicoLpuPage';
 import ConvidarUsuarioPage from './pages/ConvidarUsuarioPage';
 import LogsPage from './pages/LogsPage';
 import AceitarConvitePage from './pages/AceitarConvitePage';
@@ -24,6 +28,9 @@ const PAGE_TITLES = {
     '/produtos-vp': 'Produtos VerticalParts',
     '/outros-fornecedores': 'Outros Fornecedores',
     '/aprovacoes': 'Alçadas de Aprovação',
+    '/requisicao-servicos': 'Requisição Serviços',
+    '/requisicao-servicos/nova': 'Nova Requisição de Serviço',
+    '/requisicao-servicos/lpu': 'Catálogo de Serviços (LPU)',
     '/history': 'Histórico de Pedidos',
     '/sem-estoque': 'Peças Sem Estoque',
     '/estoque-vp': 'Estoque VerticalParts',
@@ -221,6 +228,38 @@ export default function App() {
                 element={
                     <ProtectedRoute>
                         <Layout {...layoutProps}><AprovacoesPage /></Layout>
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/requisicao-servicos"
+                element={
+                    <ProtectedRoute>
+                        <Layout {...layoutProps}><RequisicaoServicosPage /></Layout>
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/requisicao-servicos/nova"
+                element={
+                    <ProtectedRoute>
+                        <Layout {...layoutProps}><RequisicaoServicoNovaPage /></Layout>
+                    </ProtectedRoute>
+                }
+            />
+            <Route
+                path="/requisicao-servicos/lpu"
+                element={
+                    <AdminRoute>
+                        <Layout {...layoutProps}><ServicoLpuPage /></Layout>
+                    </AdminRoute>
+                }
+            />
+            <Route
+                path="/requisicao-servicos/:id"
+                element={
+                    <ProtectedRoute>
+                        <Layout {...layoutProps}><RequisicaoServicoDetalhePage /></Layout>
                     </ProtectedRoute>
                 }
             />

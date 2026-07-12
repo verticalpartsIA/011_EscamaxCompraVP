@@ -4,6 +4,7 @@ const { criarFluxoAprovacaoProdutos } = require('../services/approvalEngine');
 const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
 const { appendOrder, findOrderByIdempotencyKey } = require('../services/orderStore');
 const { cnpjFiliais, calcularTotalCarrinho, validarCheckoutPreflight } = require('../services/checkoutPreflight');
+const { validarEstoqueItens } = require('../services/estoqueService');
 const logger = require('../utils/logger');
 const { registrarLog } = require('../services/auditoriaService');
 
@@ -18,6 +19,7 @@ async function saveOrder(entry) {
 exports.preflight = async (req, res) => {
     try {
         const resultado = validarCheckoutPreflight(req.body);
+        await validarEstoqueItens(req.body.itens);
         res.json(resultado);
     } catch (error) {
         res.status(400).json({ ok: false, error: error.message });
@@ -50,6 +52,7 @@ exports.processar = async (req, res) => {
     let preflight;
     try {
         preflight = validarCheckoutPreflight(req.body);
+        await validarEstoqueItens(itens);
     } catch (error) {
         return res.status(400).json({ error: error.message });
     }

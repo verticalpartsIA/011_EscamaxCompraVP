@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const fetch = require('../utils/fetchComKeepAlive');
 const logger = require('../utils/logger');
 
 // Persistência de pedidos no Supabase (tabela `pedidos`), substituindo o antigo
