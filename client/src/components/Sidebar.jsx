@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse } from 'lucide-react';
+import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse, BookOpen } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -89,8 +89,17 @@ export default function Sidebar({ logout }) {
                 </div>
             )}
 
-            {/* Rodapé: logout */}
-            <div className="border-t border-surface-border p-3">
+            {/* Rodapé: tutorial + logout */}
+            <div className="border-t border-surface-border p-3 space-y-0.5">
+                <a
+                    href="/tutorial.html"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-surface-card hover:text-primary"
+                >
+                    <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                    Saiba como Usar
+                </a>
                 <button
                     onClick={logout}
                     className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-surface-card hover:text-red-400"
