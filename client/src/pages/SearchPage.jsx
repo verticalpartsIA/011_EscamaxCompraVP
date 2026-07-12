@@ -610,7 +610,7 @@ export default function SearchPage() {
                                     className="w-full py-3.5 rounded bg-primary text-black text-sm font-bold hover:bg-primary-light hover:shadow-brand-sm transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                     <ShoppingCart size={18} />
-                                    {isCorrimao(selectedPart) ? 'Adicionar medida ao Carrinho' : 'Adicionar ao Carrinho'}
+                                    {isCorrimao(selectedPart) ? 'Adicionar Produto ao Carrinho' : 'Adicionar ao Carrinho'}
                                 </button>
                             </div>
                         </div>
