@@ -70,10 +70,19 @@ Deno.serve(async (_req) => {
 
     const produtos = await buscarEstoqueOmie();
 
-    // Só interessam produtos com prefixo VPEL, VPER ou VPB — o resto (matéria-prima,
-    // códigos internos, etc.) não faz parte do catálogo de peças mostrado no portal.
+    // Mesma regra de inclusão usada em omieClient.js#listarTodos (o antigo catálogo
+    // ao vivo): qualquer código VP*, exceto os prefixos internos/matéria-prima abaixo.
+    // Isso cobre não só VPEL/VPER/VPB (usados na tela "Estoque VerticalParts") como
+    // também corrimões (VP-, VPP-, VPPU-), necessários pra "Consultar Peças" buscar
+    // sem precisar de uma chamada ao vivo na Omie a cada pesquisa.
+    const PREFIXOS_EXCLUIDOS = ["VPAT", "VPMP", "VPCON", "VPIN", "VP-E", "VP-P", "VPKIT-", "VPPKIT-"];
+    const isProdutoValido = (codigo: string) => {
+      const c = codigo.toUpperCase();
+      if (!c.startsWith("VP")) return false;
+      return !PREFIXOS_EXCLUIDOS.some((p) => c.startsWith(p));
+    };
     const linhas = produtos
-      .filter((p) => p.cCodigo && /^(VPEL|VPER|VPB)/i.test(p.cCodigo))
+      .filter((p) => p.cCodigo && isProdutoValido(p.cCodigo))
       .map((p) => ({
         codigo: p.cCodigo,
         descricao: p.cDescricao || null,

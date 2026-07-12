@@ -10,8 +10,10 @@ async function fetchEstoqueVP() {
     const todos = [];
     let offset = 0;
     while (true) {
+        // Tela mostra só VPEL/VPER/VPB por decisão do usuário — a tabela em si tem
+        // mais códigos (corrimões etc.) porque também alimenta a busca de "Consultar Peças".
         const resp = await fetch(
-            `${SUPABASE_URL}/rest/v1/estoque_vp?select=codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em&order=descricao.asc`,
+            `${SUPABASE_URL}/rest/v1/estoque_vp?select=codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em&or=(codigo.ilike.VPEL*,codigo.ilike.VPER*,codigo.ilike.VPB*)&order=descricao.asc`,
             {
                 headers: {
                     apikey: SUPABASE_ANON,
