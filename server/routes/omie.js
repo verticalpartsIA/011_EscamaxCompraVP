@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
-const { consultarPedidoVenda, consultarContratoComPecas } = require('../services/omieClient');
+const { consultarPedidoVenda, consultarContratoAutorizado } = require('../services/omieClient');
 const logger = require('../utils/logger');
 
 const UNIDADES_VALIDAS = ['BRASILIA', 'FLORIANOPOLIS', 'PICARRAS', 'SALVADOR', 'SAOPAULO'];
@@ -65,7 +65,7 @@ router.get('/contrato', authMiddleware, async (req, res) => {
     logger.info(`[omie/contrato] Consultando contrato ${numero} na filial ${unidadeUp}`);
 
     try {
-        const resultado = await consultarContratoComPecas(numero, unidadeUp);
+        const resultado = await consultarContratoAutorizado(numero, unidadeUp);
 
         if (!resultado) {
             return res.status(404).json({
@@ -75,9 +75,10 @@ router.get('/contrato', authMiddleware, async (req, res) => {
 
         if (!resultado.valido) {
             return res.status(422).json({
-                error: 'Contrato encontrado, mas sem tag "Contrato com peças" ou "Contrato Parcial com Peças".',
+                error: '❌ Para essa modalidade de contrato não está autorizado a fazer o pedido.',
                 numero: resultado.numero,
-                tags: resultado.tags,
+                categoria: resultado.categoria,
+                categoriaDescricao: resultado.categoriaDescricao,
             });
         }
 

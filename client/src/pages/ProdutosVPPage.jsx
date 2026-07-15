@@ -84,7 +84,7 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
             );
             const data = await resp.json();
             if (!resp.ok) {
-                setErro(data.error || (isContrato ? 'Contrato não encontrado ou sem tag válida.' : 'Pedido não encontrado.'));
+                setErro(data.error || (isContrato ? 'Contrato não encontrado ou com categoria não autorizada.' : 'Pedido não encontrado.'));
                 setValidacaoCarrinho({ tipo: '', numero: '', validado: false });
                 return;
             }
@@ -94,8 +94,8 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
                 vendedor: data.vendedor || '',
                 valorTotal: Number(data.valorTotal || 0),
                 limiteCompra70: Number(data.limiteCompra70 || 0),
-                tagValida: data.tagValida || '',
-                tags: data.tags || [],
+                categoria: data.categoria || '',
+                categoriaDescricao: data.categoriaDescricao || '',
                 validado: true,
             });
         } catch (e) {
@@ -122,7 +122,7 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
                         <p className="text-sm font-bold text-green-800">
                             {isContrato ? 'Contrato' : 'Pedido'} <span className="font-mono">{validacaoCarrinho.numero}</span> confirmado
                             {!isContrato && validacaoCarrinho.vendedor ? ` — Vendedor: ${validacaoCarrinho.vendedor}` : ''}
-                            {isContrato && validacaoCarrinho.tagValida ? ` — Tag: ${validacaoCarrinho.tagValida}` : ''}
+                            {isContrato && validacaoCarrinho.categoriaDescricao ? ` — Categoria: ${validacaoCarrinho.categoriaDescricao}` : ''}
                         </p>
                         <p className="text-xs text-green-600">
                             Carrinho liberado · Filial: Escamax {filial?.label}
@@ -180,7 +180,8 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
                 {isContrato ? (
                     <>
                         Atendimentos a contrato da filial <strong>Escamax {filial?.label}</strong> precisam estar vinculados
-                        a um contrato existente com tag <strong>Contrato com peças</strong> ou <strong>Contrato Parcial com Peças</strong>.
+                        a um contrato de <strong>Manutenção Com Peças</strong> ou <strong>Manutenção Parcial Peças</strong> (categorias 3.101/3.102 no Omie).
+                        Contratos de <strong>Manutenção Sem Peças</strong> (3.103) não autorizam pedido.
                     </>
                 ) : (
                     <>

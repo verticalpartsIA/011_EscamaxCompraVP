@@ -78,6 +78,26 @@ exports.processar = async (req, res) => {
         }
     }
 
+    if (finalidade === 'Atendimento a Contrato') {
+        let contratoValidado;
+        try {
+            contratoValidado = await omieClient.consultarContratoAutorizado(contratoRef, unidade);
+        } catch (error) {
+            logger.error(`Checkout: falha ao validar contrato ${contratoRef} em ${unidade}: ${error.message}`);
+            return res.status(502).json({ error: `Erro ao validar o contrato no Omie: ${error.message}` });
+        }
+        if (!contratoValidado) {
+            return res.status(400).json({ error: 'Contrato inválido ou não encontrado na filial selecionada.' });
+        }
+        if (!contratoValidado.valido) {
+            return res.status(400).json({
+                error: '❌ Para essa modalidade de contrato não está autorizado a fazer o pedido.',
+                categoria: contratoValidado.categoria,
+                categoriaDescricao: contratoValidado.categoriaDescricao,
+            });
+        }
+    }
+
     const totalCarrinho = preflight.totalCarrinho;
     const planoPagamento = normalizarPlanoPagamento(pagamento, totalCarrinho);
     const aprovacao = criarFluxoAprovacaoProdutos({ valorTotal: totalCarrinho, origem: 'checkout' });

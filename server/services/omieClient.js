@@ -965,12 +965,20 @@ exports.consultarPedidoVenda = async (numeroPedido, unidade) => {
     };
 };
 
-const TAGS_CONTRATO_COM_PECAS = [
-    'contrato com pecas',
-    'cto com pecas',
-    'contrato parcial com pecas',
-    'cto parcial com pecas',
-];
+// Validação estrita por Categoria do contrato no Omie (substitui as antigas tags
+// "Contrato com peças"/"Contrato Parcial com Peças" no cadastro do cliente).
+// O código Omie da categoria (cCodCateg, ex.: 1.01.96) NÃO é estável entre filiais —
+// 1.01.98 é "3.103 Sem Peças" em SP mas "3.102 Parcial" em Piçarras. O identificador
+// confiável é o prefixo "3.10x" na DESCRIÇÃO da categoria (igual nas 5 filiais):
+//   3.101 - Contrato de Manutenção Com Peças     -> autorizado
+//   3.102 - Contrato de Manutenção Parcial Peças -> autorizado
+//   3.103 - Contrato de Manutenção Sem Peças     -> bloqueado (como qualquer outra)
+const MODALIDADES_CONTRATO_AUTORIZADAS = ['3.101', '3.102'];
+
+function extrairModalidadeContrato(descricaoCategoria) {
+    const match = String(descricaoCategoria || '').trim().match(/^(\d\.\d{3})\b/);
+    return match ? match[1] : null;
+}
 
 function normalizarTextoOmie(texto) {
     return String(texto || '')
@@ -1045,7 +1053,24 @@ async function listarContratoPorNumero(numeroContrato, unidade) {
     return null;
 }
 
-exports.consultarContratoComPecas = async (numeroContrato, unidade) => {
+function extrairCategoriaContrato(contrato) {
+    const bruto = contrato?.infAdic?.cCodCateg ?? contrato?.cabecalho?.cCodCateg ?? '';
+    return String(bruto).trim() || null;
+}
+
+async function consultarDescricaoCategoria(codigoCategoria, unidade) {
+    try {
+        const data = await omiePost('geral/categorias/', 'ConsultarCategoria', {
+            codigo: codigoCategoria,
+        }, unidade);
+        return data?.descricao || null;
+    } catch (e) {
+        logger.info(`Omie: ConsultarCategoria ${codigoCategoria} em ${unidade}: ${e.response?.data?.faultstring || e.message}`);
+        return null;
+    }
+}
+
+exports.consultarContratoAutorizado = async (numeroContrato, unidade) => {
     const numero = String(numeroContrato || '').trim();
     if (!numero) throw new Error('Número do contrato obrigatório');
 
@@ -1056,30 +1081,22 @@ exports.consultarContratoComPecas = async (numeroContrato, unidade) => {
     if (!contrato?.cabecalho) return null;
 
     const cab = contrato.cabecalho;
-    const codigoCliente = cab.nCodCli;
-    if (!codigoCliente) {
-        throw new Error(`Contrato ${numero} encontrado, mas sem cliente vinculado`);
-    }
-
-    const tagsResponse = await omiePost('geral/clientetag/', 'ListarTags', {
-        nCodCliente: Number(codigoCliente),
-    }, unidade);
-
-    const tags = (tagsResponse.tagsLista || tagsResponse.tags || [])
-        .map(tag => String(tag.tag || tag.cTag || tag.nomeTag || '').trim())
-        .filter(Boolean);
-
-    const tagValida = tags.find(tag => TAGS_CONTRATO_COM_PECAS.includes(normalizarTextoOmie(tag))) || null;
+    const codigoCategoria = extrairCategoriaContrato(contrato);
+    const categoriaDescricao = codigoCategoria
+        ? await consultarDescricaoCategoria(codigoCategoria, unidade)
+        : null;
+    const modalidade = extrairModalidadeContrato(categoriaDescricao);
 
     return {
-        valido: Boolean(tagValida),
+        // Fail-closed: sem categoria, sem descrição ou modalidade fora da lista -> bloqueia.
+        valido: Boolean(modalidade && MODALIDADES_CONTRATO_AUTORIZADAS.includes(modalidade)),
         numero: cab.cNumCtr || numero,
         codigo: cab.nCodCtr || null,
         codigoIntegracao: cab.cCodIntCtr || null,
-        codigoCliente,
+        codigoCliente: cab.nCodCli || null,
         situacao: cab.cCodSit || null,
-        tags,
-        tagValida,
+        categoria: modalidade || codigoCategoria,
+        categoriaDescricao,
     };
 };
 

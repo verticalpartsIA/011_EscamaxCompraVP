@@ -128,8 +128,8 @@ export default function OutrosFornecedoresPage({
                 vendedor: data.vendedor || '',
                 valorTotal: data.valorTotal || 0,
                 limiteCompra70: data.limiteCompra70 || 0,
-                tagValida: data.tagValida || '',
-                tags: data.tags || [],
+                categoria: data.categoria || '',
+                categoriaDescricao: data.categoriaDescricao || '',
                 validado: true,
             });
         } catch (e) {

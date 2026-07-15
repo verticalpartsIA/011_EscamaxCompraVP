@@ -54,7 +54,7 @@ function validarCheckoutPreflight(body = {}) {
         throw new Error('Informe um Pedido de Venda válido para liberar compras de revenda.');
     }
     if (finalidade === 'Atendimento a Contrato' && !contratoRef) {
-        throw new Error('Informe um Contrato válido com tag de peças para liberar atendimento a contrato.');
+        throw new Error('Informe um Contrato válido de manutenção com peças (categoria 3.101 ou 3.102) para liberar atendimento a contrato.');
     }
 
     if (!pagamento || typeof pagamento !== 'object') {
