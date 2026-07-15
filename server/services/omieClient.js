@@ -51,6 +51,14 @@ function segundosDeEsperaRedundante(faultstring) {
     return m ? Math.max(1, Number(m[1])) : null;
 }
 
+// Omie responde com fault (não com lista vazia) quando uma busca paginada não
+// encontra nada na primeira página — ex.: "ERROR: Não existem registros para
+// a página [1]!" (faultcode SOAP-ENV:Client-5113). Do ponto de vista de quem
+// chama, isso é só "não encontrado", não uma falha de infraestrutura.
+function isOmieSemRegistros(err) {
+    return /n.o existem registros/i.test(err?.response?.data?.faultstring || '');
+}
+
 const MAX_TENTATIVAS_REDUNDANTE = 4;
 
 async function omiePost(endpoint, call, param, unidade = 'VP', _tentativa = 1) {
@@ -917,15 +925,23 @@ function extrairValorTotalPedido(pedido) {
 // ─── consultarPedidoVenda: valida pedido de venda da filial Escamax ───────────
 exports.consultarPedidoVenda = async (numeroPedido, unidade) => {
     const numeroInt = parseInt(numeroPedido, 10);
-    if (isNaN(numeroInt)) throw new Error('Número do pedido inválido');
+    if (isNaN(numeroInt) || String(numeroInt) !== String(numeroPedido).trim()) {
+        throw new Error('Número do pedido inválido. Use o número do Pedido de Venda (ex.: 29088), não o de contrato.');
+    }
 
-    const data = await omiePost('produtos/pedido/', 'ListarPedidos', {
-        pagina: 1,
-        registros_por_pagina: 1,
-        numero_pedido_de: numeroInt,
-        numero_pedido_ate: numeroInt,
-        apenas_resumo: 'N',
-    }, unidade);
+    let data;
+    try {
+        data = await omiePost('produtos/pedido/', 'ListarPedidos', {
+            pagina: 1,
+            registros_por_pagina: 1,
+            numero_pedido_de: numeroInt,
+            numero_pedido_ate: numeroInt,
+            apenas_resumo: 'N',
+        }, unidade);
+    } catch (err) {
+        if (isOmieSemRegistros(err)) return null;
+        throw err;
+    }
 
     const pedidos = data.pedido_venda_produto || [];
     if (pedidos.length === 0) return null;
@@ -1026,14 +1042,20 @@ async function listarContratoPorNumero(numeroContrato, unidade) {
     let totalPaginas = 1;
 
     do {
-        const data = await omiePost('servicos/contrato/', 'ListarContratos', {
-            pagina,
-            registros_por_pagina: 50,
-            apenas_importado_api: 'N',
-            cExibeObs: 'S',
-            cExibirProdutos: 'S',
-            cExibirInfoCadastro: 'S',
-        }, unidade);
+        let data;
+        try {
+            data = await omiePost('servicos/contrato/', 'ListarContratos', {
+                pagina,
+                registros_por_pagina: 50,
+                apenas_importado_api: 'N',
+                cExibeObs: 'S',
+                cExibirProdutos: 'S',
+                cExibirInfoCadastro: 'S',
+            }, unidade);
+        } catch (err) {
+            if (isOmieSemRegistros(err)) return null;
+            throw err;
+        }
 
         totalPaginas = Number(data.total_de_paginas || 1);
         const contratos = data.contratoCadastro || [];
