@@ -70,6 +70,16 @@
   carrinho; (2) validação de saldo (`estoqueService.js`) no preflight/checkout/aprovação; (3) teto de
   quantidade por item (`CHECKOUT_QTD_MAX_ITEM`, default 1000); (4) rate-limit de login: 5 falhas do
   mesmo e-mail em 15 min bloqueiam por 15 min (`LOGIN_MAX_FALHAS`/`LOGIN_JANELA_MINUTOS`).
+- **Gate "Atendimento a Contrato" por Categoria, não mais por tags (15/07/2026)**: o carrinho só libera
+  para um contrato cujo Omie resolve a Categoria como `3.101 - Contrato de Manutenção Com Peças` ou
+  `3.102 - Contrato de Manutenção Parcial Peças` — `3.103 - Sem Peças` (ou qualquer outra) bloqueia com
+  "❌ Para essa modalidade de contrato não está autorizado a fazer o pedido." Substituiu a checagem antiga
+  das tags `Contrato com peças`/`Contrato Parcial com Peças` no cadastro do cliente (`consultarContratoAutorizado`
+  em `omieClient.js`). **O código Omie da categoria (`cCodCateg`) não é estável entre filiais** — o mesmo
+  código colide com modalidades diferentes em filiais diferentes (confirmado ao vivo) — por isso a
+  modalidade é resolvida pelo prefixo `3.10x` na *descrição* da categoria via `ConsultarCategoria`, não
+  pelo código numérico direto. O checkout revalida o contrato no servidor antes de criar os pedidos (antes
+  confiava só no `contratoRef` do frontend). Ver issue [#26](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/26).
 
 ### Backend Omie
 - `server/services/omieClient.js` — toda a lógica de chamada à Omie (VP + filiais)
@@ -131,11 +141,29 @@
 
 ### Backend em produção (Hostinger, cPanel/Passenger)
 - Deploy do **frontend** é automático via GitHub → Hostinger (Vite build, `client/` como raiz).
-- Deploy do **backend** é manual: `~/domains/escamaxcompravp.vpsistema.com/nodejs/` na VPS compartilhada
-  (`76.13.95.90:65002`, usuário `u969661049`), rodando via Phusion Passenger com `PassengerBaseURI /api`
-  (ver `public_html/.htaccess`). Atualizar: `git pull && npm install && touch tmp/restart.txt` na pasta `nodejs/`.
+- **Dois domínios, um backend só**: o domínio que o time usa de fato é `escamaxcompravp1.vpsistema.com`
+  (com "1") — seu `public_html/.htaccess` tem `PassengerAppRoot` apontando pra
+  `~/domains/escamaxcompravp.vpsistema.com/nodejs/` (sem "1"), que é onde o código realmente mora.
+  `escamaxcompravp.vpsistema.com` sozinho não roteia `/api` (seu `.htaccess` não tem `PassengerBaseURI`) —
+  testar health check ali dá 404. Teste sempre em `https://escamaxcompravp1.vpsistema.com/api/health`.
+- **Deploy do backend é manual e NÃO é `git pull`** (verificado em 15/07/2026 — ver issue
+  [#27](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/27)): a pasta `nodejs/` está dentro de
+  um repositório git, mas ele aponta pro repo **errado** (`vprequisicoes`, projeto sem relação) com raiz na
+  **home inteira da conta de hospedagem** (`/home/u969661049`, que hospeda vários outros domínios/sites).
+  Um `git pull`/`git reset` ali arrisca mexer em arquivos de outros sites. Até alguém corrigir essa
+  configuração, o processo seguro é: copiar cada arquivo alterado individualmente via SFTP ou
+  `curl -o <arquivo> https://raw.githubusercontent.com/verticalpartsIA/011_EscamaxCompraVP/<commit>/server/<caminho>`,
+  depois `touch tmp/restart.txt`. Fazer backup dos arquivos antigos antes de sobrescrever.
+- **Deploys manuais historicamente ficam incompletos** — já aconteceu de arquivos novos referenciados por um
+  commit nunca chegarem a ser copiados (`server/utils/httpAgent.js` e `fetchComKeepAlive.js` da issue #25
+  ficaram faltando até 15/07/2026, e derrubavam o boot do Node com `MODULE_NOT_FOUND` assim que outro arquivo
+  passou a importá-los). Ao fazer deploy manual, é mais seguro comparar a lista completa de arquivos do
+  backend (`git ls-tree -r --name-only <commit> -- server/`) contra o que existe de fato na pasta `nodejs/`
+  antes de reiniciar, não só copiar os arquivos que mudaram no commit que motivou o deploy.
 - Health check em produção é `GET /api/health` (não `/health` — o Passenger só roteia `/api/*` para o Node;
-  qualquer outra coisa cai no fallback estático do SPA).
+  qualquer outra coisa cai no fallback estático do SPA). Depois de reiniciar (`touch tmp/restart.txt`), o
+  Passenger recarrega o processo de forma preguiçosa — a primeira requisição pode responder 503 por alguns
+  segundos até o boot terminar; espere ~15s antes de considerar falha.
 
 ### Avisos WhatsApp de aprovação (04/07/2026)
 - `server/services/whatsappNotifier.js` — aviso UNIDIRECIONAL (site → WhatsApp), sem interação/resposta.
@@ -176,6 +204,15 @@
 6.1. **Migrar segredos do `.env` para o Cofre Central de Credenciais** — já existe o papel `svc_escamax`
    provisionado (Supabase Vault, projeto `vpsistema`, doc em `verticalpartsIA/001_vpsistema` →
    `Instruções/COFRE_CREDENCIAIS.md`), mas o backend ainda lê tudo direto de `process.env`.
+6.2. **Corrigir o git da pasta `nodejs/` de produção** — hoje aponta pro repo errado (`vprequisicoes`) com
+   raiz na home inteira da conta de hospedagem, tornando `git pull` inseguro ali. Ver issue
+   [#27](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/27) para diagnóstico e sugestão de correção.
+6.3. **Terminar o deploy do keep-alive HTTPS (issue #25)** — `server/utils/httpAgent.js` e
+   `fetchComKeepAlive.js` já foram deployados (15/07/2026, eram um blocker de boot), mas os outros ~10
+   arquivos que passariam a *usar* esse agente (`orderStore.js`, `omieVPSync.js`, `estoqueService.js`,
+   `comprasHistoricoSync.js`, `auditoriaService.js`, `whatsappNotifier.js`, `usuariosService.js`,
+   `servicosService.js`, `routes/comprasHistorico.js`, entre outros) não tiveram o conteúdo verificado —
+   podem ainda estar na versão antiga (`node-fetch` puro, sem risco, só sem o ganho de performance).
 
 ### Prioridade Baixa
 7. **Rotacionar GitHub token** — token antigo foi exposto em conversa de chat e revogado; novo token salvo em `credenciais.md`
