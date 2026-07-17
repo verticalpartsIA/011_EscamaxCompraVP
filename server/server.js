@@ -18,6 +18,7 @@ const comprasHistoricoRoutes = require('./routes/comprasHistorico');
 const usuariosRoutes = require('./routes/usuarios');
 const logsRoutes = require('./routes/logs');
 const servicosRoutes = require('./routes/servicos');
+const estoqueRoutes = require('./routes/estoque');
 const cron = require('node-cron');
 const { syncOmieProdutos } = require('./services/omieVPSync');
 const { sincronizarTodasFiliais } = require('./services/comprasHistoricoSync');
@@ -48,6 +49,7 @@ app.use('/api/compras-historico', comprasHistoricoRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/servicos', servicosRoutes);
+app.use('/api/estoque', estoqueRoutes);
 
 // Health Check — em produção o Passenger só roteia /api/* para este processo
 // (ver public_html/.htaccess, PassengerBaseURI /api), então precisa viver

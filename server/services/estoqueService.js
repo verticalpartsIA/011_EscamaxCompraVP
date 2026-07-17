@@ -91,8 +91,55 @@ async function validarEstoqueItens(itens = []) {
     }
 }
 
+// PostgREST desta instância limita a 1000 linhas por request (db-max-rows) —
+// pagina via header Range até esgotar. Usado pelos endpoints /api/estoque/*,
+// que passaram a ser o único caminho de leitura dessas tabelas depois que a
+// policy de leitura pública foi removida (issue #48 — antes o frontend lia
+// estoque_vp/estoque_escamax direto do Supabase com a chave anon, sem exigir
+// login no portal).
+const PAGE_SIZE_SUPABASE = 1000;
+
+async function paginarSupabase(path) {
+    const todos = [];
+    let offset = 0;
+    while (true) {
+        const resp = await fetch(`${SUPABASE_URL()}${path}`, {
+            headers: {
+                'apikey': SUPABASE_KEY(),
+                'Authorization': `Bearer ${SUPABASE_KEY()}`,
+                'Range': `${offset}-${offset + PAGE_SIZE_SUPABASE - 1}`,
+            },
+        });
+        if (!resp.ok) throw new Error(`estoqueService: Supabase ${resp.status}`);
+        const pagina = await resp.json();
+        todos.push(...pagina);
+        if (pagina.length < PAGE_SIZE_SUPABASE) break;
+        offset += PAGE_SIZE_SUPABASE;
+    }
+    return todos;
+}
+
+// Estoque VP completo, todas as colunas — usado por ProdutosVPPage, EstoqueVPPage,
+// PecasSemEstoquePage e OutrosFornecedoresPage. Cada tela usa/filtra o subconjunto
+// de colunas e códigos que precisa no cliente; a tabela em si cobre mais códigos
+// (ex.: corrimões) do que só os prefixos VPEL/VPER/VPB rastreados por saldo.
+async function listarEstoqueVPCompleto() {
+    const cols = 'codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em';
+    return paginarSupabase(`/rest/v1/estoque_vp?select=${cols}&order=descricao.asc`);
+}
+
+// Estoque Escamax de uma filial — usado pela tela Estoque Escamax.
+async function listarEstoqueEscamax(unidade) {
+    const unidadeUp = String(unidade || '').trim().toUpperCase();
+    if (!unidadeUp) throw new Error('Informe a unidade.');
+    const cols = 'codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em';
+    return paginarSupabase(`/rest/v1/estoque_escamax?select=${cols}&unidade=eq.${encodeURIComponent(unidadeUp)}&order=descricao.asc`);
+}
+
 module.exports = {
     codigoRastreado,
     buscarEstoqueDisponivel,
     validarEstoqueItens,
+    listarEstoqueVPCompleto,
+    listarEstoqueEscamax,
 };

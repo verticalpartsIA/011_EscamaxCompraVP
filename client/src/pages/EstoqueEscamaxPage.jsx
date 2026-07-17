@@ -2,32 +2,18 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Search, RefreshCw, Package, AlertTriangle, ChevronUp, ChevronDown, Boxes } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
-const PAGE_SIZE = 1000; // limite de linhas por request do PostgREST (db-max-rows do projeto)
-
+// Lido via backend autenticado (GET /api/estoque/escamax) — estoque_escamax não
+// tem mais policy de leitura pública (issue #48: dado de estoque real ficava
+// acessível sem login algum, direto do Supabase com a chave anon).
 async function fetchEstoqueEscamax(unidade) {
-    const todos = [];
-    let offset = 0;
-    while (true) {
-        const resp = await fetch(
-            `${SUPABASE_URL}/rest/v1/estoque_escamax?select=codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em&unidade=eq.${encodeURIComponent(unidade)}&order=descricao.asc`,
-            {
-                headers: {
-                    apikey: SUPABASE_ANON,
-                    Authorization: `Bearer ${SUPABASE_ANON}`,
-                    Range: `${offset}-${offset + PAGE_SIZE - 1}`,
-                },
-            }
-        );
-        if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
-        const pagina = await resp.json();
-        todos.push(...pagina);
-        if (pagina.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-    }
-    return todos;
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`${API_BASE}/api/estoque/escamax?unidade=${encodeURIComponent(unidade)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) throw new Error(`Erro ao consultar estoque Escamax (${resp.status})`);
+    return resp.json();
 }
 
 function SortIcon({ col, sort }) {

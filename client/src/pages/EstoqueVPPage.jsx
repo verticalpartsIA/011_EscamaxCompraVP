@@ -1,34 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Search, RefreshCw, Package, AlertTriangle, ChevronUp, ChevronDown, Boxes } from 'lucide-react';
+import { codigoRastreado } from '../lib/estoqueVP';
 
-const SUPABASE_URL = 'https://hhgvlcskxopryqvhofsg.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhoZ3ZsY3NreG9wcnlxdmhvZnNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3ODc0NjIsImV4cCI6MjA5MDM2MzQ2Mn0.Hzl6k-TM_U1Ae8cNUPtz8MFBbZ4EVF3EGOhvgV7xnqk';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
-const PAGE_SIZE = 1000; // limite de linhas por request do PostgREST (db-max-rows do projeto)
-
+// Lido via backend autenticado (GET /api/estoque/vp) — estoque_vp não tem mais
+// policy de leitura pública (issue #48). Tela mostra só VPEL/VPER/VPB por decisão
+// do usuário — a tabela em si tem mais códigos (corrimões etc.) porque também
+// alimentava a busca antiga "Consultar Peças" (removida, ver issue #32).
 async function fetchEstoqueVP() {
-    const todos = [];
-    let offset = 0;
-    while (true) {
-        // Tela mostra só VPEL/VPER/VPB por decisão do usuário — a tabela em si tem
-        // mais códigos (corrimões etc.) porque também alimenta a busca de "Consultar Peças".
-        const resp = await fetch(
-            `${SUPABASE_URL}/rest/v1/estoque_vp?select=codigo,descricao,estoque_fisico,reservado,estoque_disponivel,estoque_minimo,atualizado_em&or=(codigo.ilike.VPEL*,codigo.ilike.VPER*,codigo.ilike.VPB*)&order=descricao.asc`,
-            {
-                headers: {
-                    apikey: SUPABASE_ANON,
-                    Authorization: `Bearer ${SUPABASE_ANON}`,
-                    Range: `${offset}-${offset + PAGE_SIZE - 1}`,
-                },
-            }
-        );
-        if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
-        const pagina = await resp.json();
-        todos.push(...pagina);
-        if (pagina.length < PAGE_SIZE) break;
-        offset += PAGE_SIZE;
-    }
-    return todos;
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`${API_BASE}/api/estoque/vp`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resp.ok) throw new Error(`Erro ao consultar estoque VerticalParts (${resp.status})`);
+    const todos = await resp.json();
+    return todos.filter(row => codigoRastreado(row.codigo));
 }
 
 function SortIcon({ col, sort }) {
