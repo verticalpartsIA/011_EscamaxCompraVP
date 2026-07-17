@@ -1,12 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw, AlertTriangle, Wrench, Search } from 'lucide-react';
-import { listarRequisicoes } from '../lib/servicos';
+import { listarRequisicoes, meuPerfilServicos } from '../lib/servicos';
 import { STATUS_LABELS, STATUS_CLASSES, moeda } from '../lib/statusServicos';
+
+// A visibilidade é decidida no backend por papel (server/controllers/servicosController.js,
+// escopoVisibilidade): admin e diretor_comercial veem todas as filiais por design (fluxo de
+// aprovação é corporativo, não por unidade); gerente_filial vê só a própria filial; financeiro
+// só vê a partir da etapa em que passa a atuar. Este rótulo só explica pro usuário o que a
+// lista já está mostrando, não decide filtro nenhum (issue #30 — a fila global para admin é
+// intencional e já validada em produção, não um bug).
+function escopoLabel(role) {
+    if (role === 'admin' || role === 'diretor_comercial') return 'todas as filiais (seu papel vê o fluxo inteiro)';
+    if (role === 'financeiro') return 'requisições a partir da aprovação do diretor';
+    if (role === 'gerente_filial') return 'sua filial';
+    return null;
+}
 
 export default function RequisicaoServicosPage() {
     const navigate = useNavigate();
     const [requisicoes, setRequisicoes] = useState([]);
+    const [perfil, setPerfil] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [search, setSearch] = useState('');
@@ -15,7 +29,9 @@ export default function RequisicaoServicosPage() {
         setLoading(true);
         setError(null);
         try {
-            setRequisicoes(await listarRequisicoes());
+            const [reqs, p] = await Promise.all([listarRequisicoes(), meuPerfilServicos()]);
+            setRequisicoes(reqs);
+            setPerfil(p);
         } catch (e) {
             setError(e.message);
         } finally {
@@ -41,6 +57,11 @@ export default function RequisicaoServicosPage() {
                     <p className="mt-1 text-xs text-neutral-500">
                         Contratação de serviço terceirizado — toda abertura passa pelo aval do CEO da VerticalParts.
                     </p>
+                    {escopoLabel(perfil?.role) && (
+                        <p className="mt-1 text-xs font-semibold text-primary">
+                            Mostrando: {escopoLabel(perfil?.role)}.
+                        </p>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     <button

@@ -322,7 +322,11 @@ exports.criarLpu = async (req, res) => {
     try {
         const { code, description, unit, unit_price } = req.body;
         if (!code || !description) return res.status(400).json({ error: 'Informe código e descrição.' });
-        const item = await svc.criarLpu({ code, description, unit: unit || 'un', unit_price: Number(unit_price || 0), active: true });
+        const preco = Number(unit_price);
+        if (!Number.isFinite(preco) || preco <= 0) {
+            return res.status(400).json({ error: 'Informe um preço unitário maior que zero.' });
+        }
+        const item = await svc.criarLpu({ code, description, unit: unit || 'un', unit_price: preco, active: true });
         await registrarLog({ usuarioEmail: req.user?.email, acao: 'servico.lpu_criado', detalhes: { code, description } });
         res.status(201).json(item);
     } catch (err) {
@@ -335,6 +339,13 @@ exports.atualizarLpu = async (req, res) => {
         const campos = ['description', 'unit', 'unit_price', 'active'];
         const patch = {};
         for (const campo of campos) if (req.body[campo] !== undefined) patch[campo] = req.body[campo];
+        if (patch.unit_price !== undefined) {
+            const preco = Number(patch.unit_price);
+            if (!Number.isFinite(preco) || preco <= 0) {
+                return res.status(400).json({ error: 'Informe um preço unitário maior que zero.' });
+            }
+            patch.unit_price = preco;
+        }
         const item = await svc.atualizarLpu(req.params.id, patch);
         res.json(item);
     } catch (err) {

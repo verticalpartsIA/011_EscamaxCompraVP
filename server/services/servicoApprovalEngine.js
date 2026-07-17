@@ -82,6 +82,11 @@ function validarEnviar({ solicitation, profile }) {
     if (!ESTADOS_EDITAVEIS_SOLICITANTE.includes(solicitation.status)) {
         throw new Error(`Requisição no estado "${solicitation.status}" não pode ser enviada.`);
     }
+    // Fornecedor terceirizado é o objeto da contratação — sem ele a requisição
+    // chega ao CEO/diretor/financeiro sem rastreabilidade comercial (issue #44).
+    if (!solicitation.supplier_id) {
+        throw new Error('Informe o fornecedor terceirizado antes de enviar a requisição.');
+    }
     return { novoStatus: STATUS.AGUARDANDO_CEO, acao: 'enviado' };
 }
 

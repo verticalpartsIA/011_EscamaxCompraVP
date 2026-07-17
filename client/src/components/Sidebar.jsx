@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse, Wrench, ListChecks, BookOpen } from 'lucide-react';
+import { Package, LogOut, BarChart2, PackageX, Boxes, MapPin, ChevronsUpDown, Store, ClipboardCheck, UserPlus, ScrollText, Warehouse, Wrench, ListChecks, BookOpen } from 'lucide-react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -16,7 +16,6 @@ const NAV_SECTIONS = [
     {
         title: 'Peças',
         items: [
-            { to: '/', icon: Search, label: 'Consultar Peças' },
             { to: '/produtos-vp', icon: Boxes, label: 'Produtos VerticalParts' },
             { to: '/outros-fornecedores', icon: Store, label: 'Outros Fornecedores' },
             { to: '/sem-estoque', icon: PackageX, label: 'Peças Sem Estoque', badge: true },
@@ -43,7 +42,7 @@ const NAV_SECTIONS = [
             // matchExclude: fica ativo na lista/detalhe/nova requisição, mas
             // não quando a sub-rota /lpu (item irmão) está aberta.
             { to: '/requisicao-servicos', icon: Wrench, label: 'Requisição Serviços', matchExclude: ['/requisicao-servicos/lpu'] },
-            { to: '/requisicao-servicos/lpu', icon: ListChecks, label: 'Catálogo de Serviços (LPU)', admin: true },
+            { to: '/requisicao-servicos/lpu', icon: ListChecks, label: 'Tabela de Preços (LPU) — Admin', admin: true },
         ],
     },
     {

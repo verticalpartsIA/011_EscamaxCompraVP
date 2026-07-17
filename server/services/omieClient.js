@@ -26,7 +26,13 @@ const ACQUIRE_KEYS = (unidade = 'VP') => {
     return filiais[unidade] || { key: appKeyVP(), secret: appSecretVP() };
 };
 
-const useMock = () => !appKeyVP() || appKeyVP() === 'YOUR_OMIE_APP_KEY';
+// Mock só entra com opt-in explícito (dev/teste local) — nunca por ausência
+// silenciosa de credencial. Antes, chave faltando/placeholder já bastava pra
+// cair no mock em qualquer ambiente, inclusive produção, se uma variável do
+// .env falhasse em deploy (issue #49). Sem OMIE_ALLOW_MOCK=true, credencial
+// ausente/inválida agora falha alto na chamada real à Omie (erro observável),
+// em vez de servir produtos fictícios (mockOmieDb) silenciosamente.
+const useMock = () => process.env.OMIE_ALLOW_MOCK === 'true';
 
 // Cache simples para estoque (15 min)
 const cacheEstoque = { data: null, lastFetch: 0 };

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ClipboardCheck, PackageCheck, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -234,6 +235,7 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
 
 export default function AprovacoesPage() {
     const token = localStorage.getItem('token');
+    const { filial } = useAuth();
     const [orders, setOrders] = useState([]);
     const [permissoes, setPermissoes] = useState({ niveis: [], podeFaturar: false, admin: false });
     const [loading, setLoading] = useState(true);
@@ -245,8 +247,9 @@ export default function AprovacoesPage() {
         setError('');
         try {
             const headers = { Authorization: `Bearer ${token}` };
+            const qs = filial?.id ? `?unidade=${encodeURIComponent(filial.id)}` : '';
             const [ordersRes, permissoesRes] = await Promise.all([
-                fetch(`${API_BASE}/api/orders`, { headers }),
+                fetch(`${API_BASE}/api/orders${qs}`, { headers }),
                 fetch(`${API_BASE}/api/orders/aprovacoes/permissoes`, { headers }),
             ]);
             if (!ordersRes.ok) throw new Error(`Erro ${ordersRes.status}`);
@@ -260,7 +263,7 @@ export default function AprovacoesPage() {
         } finally {
             setLoading(false);
         }
-    }, [token]);
+    }, [token, filial?.id]);
 
     useEffect(() => { carregar(); }, [carregar]);
 
@@ -323,6 +326,9 @@ export default function AprovacoesPage() {
                     </p>
                     <p className="mt-2 text-xs font-semibold text-neutral-500">
                         Suas permissões: {permissoes.admin ? 'Administrador de aprovações' : `Alçadas ${(permissoes.niveis || []).join(', ') || 'nenhuma'}`} · Faturamento {permissoes.podeFaturar ? 'liberado' : 'bloqueado'}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-primary">
+                        Mostrando fila da filial ativa: Escamax {filial?.label || '—'}. Troque de filial na barra lateral para ver a fila de outra unidade.
                     </p>
                 </div>
                 <button

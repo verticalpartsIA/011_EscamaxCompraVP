@@ -85,7 +85,15 @@ router.get('/', authMiddleware, async (req, res) => {
     try {
         let orders = await readOrders();
 
-        const { de, ate } = req.query;
+        // Filtro opcional por filial — usado pela tela de Aprovações, que deve mostrar
+        // só a fila da filial ativa (issue #29). Sem o parâmetro, comportamento não muda
+        // (Histórico de Pedidos busca tudo e filtra no client para permitir navegar entre
+        // filiais sem trocar a filial ativa da sessão).
+        const { de, ate, unidade } = req.query;
+        if (unidade) {
+            const unidadeUp = String(unidade).toUpperCase();
+            orders = orders.filter(o => String(o.unidade || '').toUpperCase() === unidadeUp);
+        }
         if (de) {
             const [y, m, d] = de.split('-').map(Number);
             const from = new Date(y, m - 1, d, 0, 0, 0, 0);

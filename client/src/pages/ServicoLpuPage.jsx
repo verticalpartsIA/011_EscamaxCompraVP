@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, RefreshCw, AlertTriangle, Power } from 'lucide-react';
 import { listarLpu, criarLpu, atualizarLpu } from '../lib/servicos';
 import { moeda } from '../lib/statusServicos';
@@ -26,10 +27,15 @@ export default function ServicoLpuPage() {
 
     const handleCriar = async () => {
         if (!novo.code.trim() || !novo.description.trim()) return;
+        const preco = Number(novo.unit_price);
+        if (!Number.isFinite(preco) || preco <= 0) {
+            setErro('Informe um preço unitário maior que zero.');
+            return;
+        }
         setSalvando(true);
         setErro('');
         try {
-            await criarLpu({ ...novo, unit_price: Number(novo.unit_price || 0) });
+            await criarLpu({ ...novo, unit_price: preco });
             setNovo({ code: '', description: '', unit: 'un', unit_price: '' });
             await carregar();
         } catch (e) {
@@ -50,10 +56,21 @@ export default function ServicoLpuPage() {
 
     return (
         <div className="space-y-5">
-            <div>
-                <p className="vp-eyebrow">Serviços</p>
-                <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-neutral-900">Catálogo de Preços (LPU)</h1>
-                <p className="mt-1 text-xs text-neutral-500">Lista de Preços Unitários usada ao montar itens da Requisição de Serviço.</p>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <p className="vp-eyebrow">Serviços · Administração</p>
+                    <h1 className="font-display text-2xl font-bold uppercase tracking-tight text-neutral-900">Tabela de Preços (LPU)</h1>
+                    <p className="mt-1 text-xs text-neutral-500">
+                        Cadastro dos itens e preços que ficam disponíveis para escolha ao montar uma Requisição de Serviço.
+                        Esta tela não abre requisições — para isso, use <strong>Requisição Serviços → Nova Requisição</strong>.
+                    </p>
+                </div>
+                <Link
+                    to="/requisicao-servicos/nova"
+                    className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-bold text-primary hover:bg-primary/20"
+                >
+                    Criar Requisição usando a LPU →
+                </Link>
             </div>
 
             {erro && (

@@ -12,6 +12,22 @@ function rawDigits(v) {
     return String(v || '').replace(/\D/g, '');
 }
 
+function normalizarTexto(v) {
+    return String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+// A tabela `branches` do módulo de Serviços usa IDs (UUID) próprios, sem
+// relação com os IDs de filial do portal (BRASILIA, SAOPAULO...) — não existe
+// FK nem convenção compartilhada entre os dois cadastros. Casa pelo nome
+// (ex.: "Filial São Paulo" contém "São Paulo") pra pré-selecionar a filial
+// ativa do portal sem depender de um mapeamento hardcoded de UUIDs, que
+// quebraria silenciosamente se a tabela for recriada (issue #51).
+function encontrarBranchDaFilialAtiva(branches, filial) {
+    if (!filial?.label) return null;
+    const alvo = normalizarTexto(filial.label);
+    return branches.find(b => normalizarTexto(b.name).includes(alvo)) || null;
+}
+
 // Consulta pública de CNPJ (BrasilAPI) — mesma fonte usada no restante do
 // portal para preencher razão social a partir do CNPJ informado.
 async function consultarCnpj(cnpj) {
@@ -75,7 +91,7 @@ function CnpjField({ label, cnpj, setCnpj, name, setName, obrigatorioNome }) {
 
 export default function RequisicaoServicoNovaPage() {
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { user, filial } = useAuth();
 
     const [perfil, setPerfil] = useState(null);
     const [branches, setBranches] = useState([]);
@@ -107,13 +123,20 @@ export default function RequisicaoServicoNovaPage() {
             setPerfil(p);
             setBranches(b);
             setLpuItems(l.filter(item => item.active));
-            if (p.branch_id) setBranchId(p.branch_id);
+            if (p.branch_id) {
+                setBranchId(p.branch_id);
+            } else {
+                // Perfil sem filial própria fixa (ex.: admin) — pré-seleciona a filial
+                // equivalente à filial ativa do portal, em vez de deixar "Selecione...".
+                const branchDaFilialAtiva = encontrarBranchDaFilialAtiva(b, filial);
+                if (branchDaFilialAtiva) setBranchId(branchDaFilialAtiva.id);
+            }
         } catch (e) {
             setErro(e.message);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [filial]);
 
     useEffect(() => { carregar(); }, [carregar]);
 
@@ -141,6 +164,7 @@ export default function RequisicaoServicoNovaPage() {
         if (!title.trim()) { setErro('Informe o título da requisição.'); return; }
         if (!branchId) { setErro('Selecione a filial.'); return; }
         if (itens.length === 0) { setErro('Adicione ao menos um item/serviço.'); return; }
+        if (enviar && !supplierCnpj.trim()) { setErro('Informe o CNPJ do fornecedor terceirizado antes de enviar.'); return; }
 
         setSalvando(true);
         try {
@@ -236,6 +260,9 @@ export default function RequisicaoServicoNovaPage() {
 
             <section className="space-y-4 rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
                 <h2 className="text-sm font-bold text-neutral-900">Itens / Serviços</h2>
+                <p className="-mt-2 text-xs text-neutral-500">
+                    Escolha um item já cadastrado na Tabela de Preços (LPU) ou informe um item manual com preço próprio.
+                </p>
                 <div className="grid gap-2 sm:grid-cols-5">
                     <select
                         className="sm:col-span-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:border-primary"

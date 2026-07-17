@@ -4,7 +4,6 @@ import { ShoppingCart } from 'lucide-react';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import FilialSelectPage from './pages/FilialSelectPage';
-import SearchPage from './pages/SearchPage';
 import HistoryPage from './pages/HistoryPage';
 import DashboardPage from './pages/DashboardPage';
 import PecasSemEstoquePage from './pages/PecasSemEstoquePage';
@@ -24,13 +23,12 @@ import CartSidebar from './components/CartSidebar';
 import Sidebar from './components/Sidebar';
 
 const PAGE_TITLES = {
-    '/': 'Consultar Peças',
     '/produtos-vp': 'Produtos VerticalParts',
     '/outros-fornecedores': 'Outros Fornecedores',
     '/aprovacoes': 'Alçadas de Aprovação',
     '/requisicao-servicos': 'Requisição Serviços',
     '/requisicao-servicos/nova': 'Nova Requisição de Serviço',
-    '/requisicao-servicos/lpu': 'Catálogo de Serviços (LPU)',
+    '/requisicao-servicos/lpu': 'Tabela de Preços (LPU) — Admin',
     '/history': 'Histórico de Pedidos',
     '/sem-estoque': 'Peças Sem Estoque',
     '/estoque-vp': 'Estoque VerticalParts',
@@ -193,7 +191,7 @@ export default function App() {
                 path="/"
                 element={
                     <ProtectedRoute>
-                        <Layout {...layoutProps}><SearchPage /></Layout>
+                        <Navigate to="/produtos-vp" replace />
                     </ProtectedRoute>
                 }
             />

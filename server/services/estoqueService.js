@@ -75,12 +75,19 @@ async function validarEstoqueItens(itens = []) {
     for (const [codigo, qtdePedida] of pedidoPorCodigo) {
         const disponivel = mapa.get(codigo) ?? 0;
         if (disponivel < qtdePedida) {
-            semSaldo.push(`${codigo} (pedido: ${qtdePedida}, disponível: ${disponivel})`);
+            // A Escamax só pode comprar da VP até o saldo real dela — o texto orienta
+            // explicitamente o caminho para o excedente (Outros Fornecedores), em vez de
+            // só reportar o número (ver issue #38).
+            semSaldo.push(
+                disponivel > 0
+                    ? `A VerticalParts possui apenas ${disponivel} unidade(s) de ${codigo} (pedido: ${qtdePedida}). Ajuste a quantidade para ${disponivel} ou direcione o restante para Outros Fornecedores.`
+                    : `A VerticalParts não possui ${codigo} em estoque no momento (pedido: ${qtdePedida}). Direcione este item para Outros Fornecedores.`
+            );
         }
     }
 
     if (semSaldo.length > 0) {
-        throw new Error(`Estoque insuficiente na VerticalParts para: ${semSaldo.join('; ')}. Ajuste as quantidades ou remova os itens sem saldo.`);
+        throw new Error(semSaldo.join(' | '));
     }
 }
 
