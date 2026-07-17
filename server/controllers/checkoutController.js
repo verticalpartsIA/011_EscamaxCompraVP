@@ -4,7 +4,7 @@ const { criarFluxoAprovacaoProdutos } = require('../services/approvalEngine');
 const { avisarNovaAprovacao } = require('../services/whatsappNotifier');
 const { appendOrder, findOrderByIdempotencyKey } = require('../services/orderStore');
 const { cnpjFiliais, calcularTotalCarrinho, validarCheckoutPreflight } = require('../services/checkoutPreflight');
-const { validarEstoqueItens } = require('../services/estoqueService');
+const { validarEstoqueItens, validarTetoReposicaoEstoque } = require('../services/estoqueService');
 const logger = require('../utils/logger');
 const { registrarLog } = require('../services/auditoriaService');
 
@@ -20,6 +20,9 @@ exports.preflight = async (req, res) => {
     try {
         const resultado = validarCheckoutPreflight(req.body);
         await validarEstoqueItens(req.body.itens);
+        if (req.body.finalidade === 'Estoque') {
+            await validarTetoReposicaoEstoque(req.body.itens);
+        }
         res.json(resultado);
     } catch (error) {
         res.status(400).json({ ok: false, error: error.message });
@@ -28,7 +31,7 @@ exports.preflight = async (req, res) => {
 
 exports.processar = async (req, res) => {
     logger.info(`API: Recebida requisição de checkout: ${JSON.stringify(req.body)}`);
-    const { unidade, itens, finalidade, tipoFrete, prioridade, pagamento, enderecoEntrega, transportadora, pedidoVendaRef, contratoRef, idempotencyKey } = req.body;
+    const { unidade, itens, finalidade, tipoFrete, prioridade, pagamento, enderecoEntrega, transportadora, pedidoVendaRef, contratoRef, usoConsumoJustificativa, idempotencyKey } = req.body;
 
     const chaveIdempotencia = String(idempotencyKey || '').trim();
     if (chaveIdempotencia) {
@@ -53,6 +56,9 @@ exports.processar = async (req, res) => {
     try {
         preflight = validarCheckoutPreflight(req.body);
         await validarEstoqueItens(itens);
+        if (finalidade === 'Estoque') {
+            await validarTetoReposicaoEstoque(itens);
+        }
     } catch (error) {
         return res.status(400).json({ error: error.message });
     }
@@ -119,6 +125,7 @@ exports.processar = async (req, res) => {
     const observacoes = [
         pedidoVendaRef ? `Ref. Pedido de Venda Escamax: ${pedidoVendaRef}` : null,
         contratoRef ? `Ref. Contrato Escamax: ${contratoRef}` : null,
+        usoConsumoJustificativa ? `Justificativa de Uso e Consumo: ${usoConsumoJustificativa}` : null,
         finalidade ? `Finalidade: ${finalidade}` : null,
         prioridade ? `Prioridade: ${prioridade}` : null,
         freteDesc || null,
@@ -137,6 +144,7 @@ exports.processar = async (req, res) => {
         unidade,
         pedidoVendaRef: pedidoVendaRef || null,
         contratoRef: contratoRef || null,
+        usoConsumoJustificativa: usoConsumoJustificativa || null,
         itens,
         finalidade: finalidade || null,
         tipoFrete: tipoFrete || '9',

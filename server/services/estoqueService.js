@@ -136,10 +136,84 @@ async function listarEstoqueEscamax(unidade) {
     return paginarSupabase(`/rest/v1/estoque_escamax?select=${cols}&unidade=eq.${encodeURIComponent(unidadeUp)}&order=descricao.asc`);
 }
 
+// Busca disponível + mínimo dos códigos informados. Retorna Map<codigoUpper, {disponivel, minimo}>.
+async function buscarEstoqueComMinimo(codigos = []) {
+    const unicos = [...new Set(codigos.map(c => String(c || '').trim()).filter(Boolean))];
+    if (unicos.length === 0) return new Map();
+
+    const inList = unicos.map(c => `"${c.replace(/"/g, '')}"`).join(',');
+    const resp = await fetch(
+        `${SUPABASE_URL()}/rest/v1/estoque_vp?codigo=in.(${encodeURIComponent(inList)})&select=codigo,estoque_disponivel,estoque_minimo`,
+        {
+            headers: {
+                'apikey': SUPABASE_KEY(),
+                'Authorization': `Bearer ${SUPABASE_KEY()}`,
+            },
+        }
+    );
+    if (!resp.ok) throw new Error(`estoqueService: Supabase ${resp.status}`);
+    const rows = await resp.json();
+
+    const mapa = new Map();
+    for (const row of rows) {
+        mapa.set(String(row.codigo).toUpperCase(), {
+            disponivel: Number(row.estoque_disponivel) || 0,
+            minimo: Number(row.estoque_minimo) || 0,
+        });
+    }
+    return mapa;
+}
+
+// Finalidade "Estoque" (reposição interna da filial, sem vínculo a Pedido de Venda
+// ou Contrato): a quantidade pedida não pode passar do que falta para a VP voltar
+// ao próprio estoque mínimo — mesma regra do módulo M1 do VPRequisições (teto =
+// max(0, mínimo - disponível)), mas lendo da nossa própria tabela estoque_vp já
+// sincronizada, sem chamada ao vivo na Omie. É uma restrição ADICIONAL: continua
+// valendo também a checagem normal de validarEstoqueItens (não dá pra comprar mais
+// do que a VP tem fisicamente disponível agora), essa aqui é mais apertada ainda.
+async function validarTetoReposicaoEstoque(itens = []) {
+    const rastreados = itens.filter(item => codigoRastreado(item.codigo));
+    if (rastreados.length === 0) {
+        throw new Error('Nenhum item do carrinho tem rastreio de saldo (fora dos prefixos VPEL/VPER/VPB) — a finalidade Estoque não se aplica a esses códigos.');
+    }
+
+    let mapa;
+    try {
+        mapa = await buscarEstoqueComMinimo(rastreados.map(i => i.codigo));
+    } catch (e) {
+        logger.error(`estoqueService: falha ao consultar teto de reposição: ${e.message}`);
+        throw new Error('Não foi possível verificar o estoque mínimo no momento. Tente novamente em instantes.');
+    }
+
+    const pedidoPorCodigo = new Map();
+    for (const item of rastreados) {
+        const chave = String(item.codigo).trim().toUpperCase();
+        pedidoPorCodigo.set(chave, (pedidoPorCodigo.get(chave) || 0) + Number(item.quantidade || 0));
+    }
+
+    const acimaDoTeto = [];
+    for (const [codigo, qtdePedida] of pedidoPorCodigo) {
+        const info = mapa.get(codigo);
+        const disponivel = info?.disponivel ?? 0;
+        const minimo = info?.minimo ?? 0;
+        const teto = Math.max(0, minimo - disponivel);
+        if (teto <= 0) {
+            acimaDoTeto.push(`${codigo}: estoque disponível (${disponivel}) já está no mínimo (${minimo}) ou acima — não é necessário repor agora.`);
+        } else if (qtdePedida > teto) {
+            acimaDoTeto.push(`${codigo}: quantidade máxima para reposição é ${teto} (disponível ${disponivel}, mínimo ${minimo}), pedido foi ${qtdePedida}.`);
+        }
+    }
+
+    if (acimaDoTeto.length > 0) {
+        throw new Error(acimaDoTeto.join(' | '));
+    }
+}
+
 module.exports = {
     codigoRastreado,
     buscarEstoqueDisponivel,
     validarEstoqueItens,
+    validarTetoReposicaoEstoque,
     listarEstoqueVPCompleto,
     listarEstoqueEscamax,
 };

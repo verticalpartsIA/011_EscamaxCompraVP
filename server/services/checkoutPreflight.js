@@ -43,7 +43,7 @@ function validarItens(itens = []) {
 }
 
 function validarCheckoutPreflight(body = {}) {
-    const { unidade, itens, finalidade, pedidoVendaRef, contratoRef, pagamento, idempotencyKey } = body;
+    const { unidade, itens, finalidade, pedidoVendaRef, contratoRef, usoConsumoJustificativa, pagamento, idempotencyKey } = body;
 
     if (!unidade) {
         throw new Error('Unidade e itens são obrigatórios');
@@ -56,6 +56,11 @@ function validarCheckoutPreflight(body = {}) {
     if (finalidade === 'Atendimento a Contrato' && !contratoRef) {
         throw new Error('Informe um Contrato válido de manutenção com peças (categoria 3.101 ou 3.102) para liberar atendimento a contrato.');
     }
+    if (finalidade === 'Uso e Consumo' && !String(usoConsumoJustificativa || '').trim()) {
+        throw new Error('Informe a justificativa de uso e consumo interno para liberar o carrinho.');
+    }
+    // "Estoque" (reposição interna) não exige Pedido de Venda/Contrato/justificativa —
+    // é validado à parte por quantidade, contra o teto de reposição (ver estoqueService.js).
 
     if (!pagamento || typeof pagamento !== 'object') {
         throw new Error('Informe a forma de pagamento do pedido antes de finalizar.');

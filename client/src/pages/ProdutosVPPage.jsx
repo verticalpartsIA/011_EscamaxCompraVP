@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     Search, RefreshCw, Package, AlertTriangle, ChevronUp, ChevronDown,
-    Lock, ShoppingCart, Plus, CheckCircle2, Loader2, XCircle, Tag,
+    Lock, ShoppingCart, Plus, CheckCircle2, Loader2, XCircle, Tag, Boxes, FileCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { fetchEstoqueVPMap, juntarEstoque } from '../lib/estoqueVP';
@@ -52,16 +52,33 @@ function SortIcon({ col, sort }) {
         : <ChevronDown className="inline h-3.5 w-3.5 ml-0.5 text-primary" />;
 }
 
+// Opções de finalidade da triagem — layout de cartões inspirado no módulo M1 do
+// VPRequisições (verticalpartsIA/003_requisicoes), mas as regras de cada uma são
+// as do nosso próprio checkout (validação Omie de Pedido de Venda/Contrato já
+// existente, mais as 2 novas: Uso e Consumo e Estoque, validadas no backend deste
+// projeto — ver checkoutPreflight.js e estoqueService.js).
+const TRIAGEM_OPCOES = [
+    { finalidade: 'Revenda', tipo: 'pedido-venda', icon: Tag, titulo: 'Revenda', subtitulo: 'Produtos vinculados a um Pedido de Venda' },
+    { finalidade: 'Atendimento a Contrato', tipo: 'contrato', icon: FileCheck, titulo: 'Atendimento a Contrato', subtitulo: 'Peças para contrato de manutenção' },
+    { finalidade: 'Uso e Consumo', tipo: 'uso-consumo', icon: Package, titulo: 'Uso e Consumo', subtitulo: 'Compra interna, sem vínculo a pedido ou contrato' },
+    { finalidade: 'Estoque', tipo: 'estoque', icon: Boxes, titulo: 'Estoque', subtitulo: 'Reposição até o estoque mínimo da VerticalParts' },
+];
+
 // ── Gate: painel de validação do carrinho ────────────────────────────────────
 function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial, finalidade, setFinalidade }) {
-    const tipoValidacao = finalidade === 'Atendimento a Contrato' ? 'contrato' : 'pedido-venda';
+    const tipoValidacao = TRIAGEM_OPCOES.find(o => o.finalidade === finalidade)?.tipo || 'pedido-venda';
     const isContrato = tipoValidacao === 'contrato';
+    const isPedidoOuContrato = tipoValidacao === 'pedido-venda' || tipoValidacao === 'contrato';
+    const isUsoConsumo = tipoValidacao === 'uso-consumo';
+    const isEstoque = tipoValidacao === 'estoque';
     const [inputNumero, setInputNumero] = useState(validacaoCarrinho.numero || '');
+    const [justificativa, setJustificativa] = useState(validacaoCarrinho.justificativa || '');
     const [verificando, setVerificando] = useState(false);
     const [erro, setErro] = useState('');
 
     useEffect(() => {
         setInputNumero('');
+        setJustificativa('');
         setErro('');
     }, [tipoValidacao, filial?.id]);
 
@@ -106,8 +123,24 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
         }
     };
 
+    const handleConfirmarUsoConsumo = () => {
+        const texto = justificativa.trim();
+        if (texto.length < 10) {
+            setErro('Justificativa deve ter pelo menos 10 caracteres.');
+            return;
+        }
+        setErro('');
+        setValidacaoCarrinho({ tipo: 'uso-consumo', numero: '', justificativa: texto, validado: true });
+    };
+
+    const handleLiberarEstoque = () => {
+        setErro('');
+        setValidacaoCarrinho({ tipo: 'estoque', numero: '', validado: true });
+    };
+
     const handleReset = () => {
         setInputNumero('');
+        setJustificativa('');
         setErro('');
         setValidacaoCarrinho({ tipo: '', numero: '', validado: false });
     };
@@ -120,17 +153,31 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
                     <div>
                         <p className="text-sm font-bold text-green-800">
-                            {isContrato ? 'Contrato' : 'Pedido'} <span className="font-mono">{validacaoCarrinho.numero}</span> confirmado
-                            {!isContrato && validacaoCarrinho.vendedor ? ` — Vendedor: ${validacaoCarrinho.vendedor}` : ''}
-                            {isContrato && validacaoCarrinho.categoriaDescricao ? ` — Categoria: ${validacaoCarrinho.categoriaDescricao}` : ''}
+                            {isPedidoOuContrato && (
+                                <>
+                                    {isContrato ? 'Contrato' : 'Pedido'} <span className="font-mono">{validacaoCarrinho.numero}</span> confirmado
+                                    {!isContrato && validacaoCarrinho.vendedor ? ` — Vendedor: ${validacaoCarrinho.vendedor}` : ''}
+                                    {isContrato && validacaoCarrinho.categoriaDescricao ? ` — Categoria: ${validacaoCarrinho.categoriaDescricao}` : ''}
+                                </>
+                            )}
+                            {isUsoConsumo && 'Uso e Consumo confirmado'}
+                            {isEstoque && 'Reposição de Estoque liberada'}
                         </p>
                         <p className="text-xs text-green-600">
                             Carrinho liberado · Filial: Escamax {filial?.label}
                         </p>
-                        {!isContrato && validacaoCarrinho.valorTotal > 0 && (
+                        {isPedidoOuContrato && !isContrato && validacaoCarrinho.valorTotal > 0 && (
                             <p className="text-xs text-green-700">
                                 Proposta: {validacaoCarrinho.valorTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                                 {' · '}Limite 70%: {validacaoCarrinho.limiteCompra70.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                            </p>
+                        )}
+                        {isUsoConsumo && validacaoCarrinho.justificativa && (
+                            <p className="text-xs text-green-700">Justificativa: {validacaoCarrinho.justificativa}</p>
+                        )}
+                        {isEstoque && (
+                            <p className="text-xs text-green-700">
+                                Quantidade de cada item limitada ao necessário para a VerticalParts voltar ao estoque mínimo.
                             </p>
                         )}
                     </div>
@@ -139,7 +186,7 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
                     onClick={handleReset}
                     className="ml-4 shrink-0 text-xs font-semibold text-green-700 underline hover:text-green-900"
                 >
-                    Trocar {isContrato ? 'contrato' : 'pedido'}
+                    Trocar finalidade
                 </button>
             </div>
         );
@@ -147,67 +194,130 @@ function ValidacaoCarrinhoGate({ validacaoCarrinho, setValidacaoCarrinho, filial
 
     // ── Estado: aguardando validação ─────────────────────────────────────────
     return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-                {[
-                    { value: 'Revenda', label: 'Revenda' },
-                    { value: 'Atendimento a Contrato', label: 'Atendimento a Contrato' },
-                ].map(option => (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-4">
+            <div>
+                <p className="mb-2.5 text-sm font-bold text-amber-800">Selecione a finalidade da compra:</p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {TRIAGEM_OPCOES.map(opt => {
+                        const Icon = opt.icon;
+                        const ativo = finalidade === opt.finalidade;
+                        return (
+                            <button
+                                key={opt.finalidade}
+                                type="button"
+                                onClick={() => setFinalidade(opt.finalidade)}
+                                className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all ${
+                                    ativo
+                                        ? 'border-primary bg-primary/10'
+                                        : 'border-amber-200 bg-white hover:border-primary/50 hover:bg-primary/5'
+                                }`}
+                            >
+                                <Icon className="h-8 w-8 text-primary-dark" />
+                                <div>
+                                    <p className="text-sm font-bold text-neutral-900">{opt.titulo}</p>
+                                    <p className="mt-0.5 text-[11px] leading-tight text-neutral-500">{opt.subtitulo}</p>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+            </div>
+
+            {isPedidoOuContrato && (
+                <div className="space-y-3 border-t border-amber-200 pt-3">
+                    <div className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                        <p className="text-sm font-bold text-amber-800">
+                            {isContrato
+                                ? 'Informe o Contrato para liberar o carrinho'
+                                : 'Informe o Pedido de Venda para liberar o carrinho'
+                            }
+                        </p>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                        {isContrato ? (
+                            <>
+                                Atendimentos a contrato da filial <strong>Escamax {filial?.label}</strong> precisam estar vinculados
+                                a um contrato de <strong>Manutenção Com Peças</strong> ou <strong>Manutenção Parcial Peças</strong> (categorias 3.101/3.102 no Omie).
+                                Contratos de <strong>Manutenção Sem Peças</strong> (3.103) não autorizam pedido.
+                            </>
+                        ) : (
+                            <>
+                                Revendas da filial <strong>Escamax {filial?.label}</strong> precisam estar vinculadas
+                                a um Pedido de Venda existente no Omie desta filial.
+                            </>
+                        )}
+                    </p>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            placeholder={isContrato ? 'Ex.: 2025/00123' : 'Ex.: 29088'}
+                            value={inputNumero}
+                            onChange={e => { setInputNumero(e.target.value); setErro(''); }}
+                            onKeyDown={e => e.key === 'Enter' && handleVerificar()}
+                            className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                        />
+                        <button
+                            onClick={handleVerificar}
+                            disabled={verificando || !inputNumero.trim()}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-black transition hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            {verificando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Tag className="h-4 w-4" />}
+                            {verificando ? 'Verificando...' : `Verificar ${isContrato ? 'Contrato' : 'Pedido'} no Omie`}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {isUsoConsumo && (
+                <div className="space-y-3 border-t border-amber-200 pt-3">
+                    <div className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                        <p className="text-sm font-bold text-amber-800">Informe a justificativa para liberar o carrinho</p>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                        Compra para uso e consumo interno da filial <strong>Escamax {filial?.label}</strong> — sem vínculo a
+                        Pedido de Venda ou Contrato.
+                    </p>
+                    <textarea
+                        value={justificativa}
+                        onChange={e => { setJustificativa(e.target.value); setErro(''); }}
+                        rows={2}
+                        maxLength={500}
+                        placeholder="Explique o motivo da compra para uso interno..."
+                        className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                    />
                     <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setFinalidade(option.value)}
-                        className={`rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                            finalidade === option.value
-                                ? 'border-primary bg-primary/20 text-black'
-                                : 'border-amber-200 bg-white text-amber-700 hover:border-primary'
-                        }`}
+                        onClick={handleConfirmarUsoConsumo}
+                        disabled={!justificativa.trim()}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-black transition hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                        {option.label}
+                        <CheckCircle2 className="h-4 w-4" />
+                        Confirmar e liberar carrinho
                     </button>
-                ))}
-            </div>
-            <div className="flex items-center gap-2">
-                <Lock className="h-4 w-4 text-amber-600 shrink-0" />
-                <p className="text-sm font-bold text-amber-800">
-                    {isContrato
-                        ? 'Informe o Contrato para liberar o carrinho'
-                        : 'Informe o Pedido de Venda para liberar o carrinho'
-                    }
-                </p>
-            </div>
-            <p className="text-xs text-amber-700">
-                {isContrato ? (
-                    <>
-                        Atendimentos a contrato da filial <strong>Escamax {filial?.label}</strong> precisam estar vinculados
-                        a um contrato de <strong>Manutenção Com Peças</strong> ou <strong>Manutenção Parcial Peças</strong> (categorias 3.101/3.102 no Omie).
-                        Contratos de <strong>Manutenção Sem Peças</strong> (3.103) não autorizam pedido.
-                    </>
-                ) : (
-                    <>
-                        Revendas da filial <strong>Escamax {filial?.label}</strong> precisam estar vinculadas
-                        a um Pedido de Venda existente no Omie desta filial.
-                    </>
-                )}
-            </p>
-            <div className="flex gap-2">
-                <input
-                    type="text"
-                    placeholder={isContrato ? 'Ex.: 2025/00123' : 'Ex.: 29088'}
-                    value={inputNumero}
-                    onChange={e => { setInputNumero(e.target.value); setErro(''); }}
-                    onKeyDown={e => e.key === 'Enter' && handleVerificar()}
-                    className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
-                />
-                <button
-                    onClick={handleVerificar}
-                    disabled={verificando || !inputNumero.trim()}
-                    className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-black transition hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    {verificando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Tag className="h-4 w-4" />}
-                    {verificando ? 'Verificando...' : `Verificar ${isContrato ? 'Contrato' : 'Pedido'} no Omie`}
-                </button>
-            </div>
+                </div>
+            )}
+
+            {isEstoque && (
+                <div className="space-y-3 border-t border-amber-200 pt-3">
+                    <div className="flex items-center gap-2">
+                        <Lock className="h-4 w-4 text-amber-600 shrink-0" />
+                        <p className="text-sm font-bold text-amber-800">Reposição de estoque da filial</p>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                        A quantidade de cada item fica limitada ao necessário para a VerticalParts voltar ao próprio
+                        estoque mínimo — verificado automaticamente ao finalizar o pedido.
+                    </p>
+                    <button
+                        onClick={handleLiberarEstoque}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-black transition hover:bg-primary-light"
+                    >
+                        <CheckCircle2 className="h-4 w-4" />
+                        Liberar carrinho para reposição de estoque
+                    </button>
+                </div>
+            )}
+
             {erro && (
                 <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
                     <XCircle className="h-4 w-4 shrink-0 text-red-500" />

@@ -80,6 +80,23 @@
   modalidade é resolvida pelo prefixo `3.10x` na *descrição* da categoria via `ConsultarCategoria`, não
   pelo código numérico direto. O checkout revalida o contrato no servidor antes de criar os pedidos (antes
   confiava só no `contratoRef` do frontend). Ver issue [#26](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/26).
+- **4ª e 5ª finalidades: Uso e Consumo e Estoque (17/07/2026)** — antes só existiam Revenda e Atendimento
+  a Contrato. Layout do gate (`ValidacaoCarrinhoGate` em `ProdutosVPPage.jsx`) inspirado nos cartões de
+  triagem do módulo M1 do VPRequisições (`verticalpartsIA/003_requisicoes`), mas as **regras são só
+  daqui** — não foi importada nenhuma lógica de lá (nem chamada Omie ao vivo de estoque, nem gravação
+  direta no Supabase pelo browser).
+  - **Uso e Consumo**: sem vínculo a Pedido de Venda/Contrato — exige uma justificativa (mín. 10
+    caracteres, campo `usoConsumoJustificativa`) em vez disso. Validado em `checkoutPreflight.js`.
+  - **Estoque**: reposição interna sem vínculo nenhum — cada item fica limitado a
+    `max(0, estoque_minimo - estoque_disponivel)` da tabela `estoque_vp` (mesma fonte que o resto do
+    portal já usa, lida via `GET /api/estoque/vp`; NÃO é chamada ao vivo na Omie como o 003_requisicoes
+    faz). Nova função `estoqueService.validarTetoReposicaoEstoque()`, chamada nos mesmos 3 pontos onde
+    `validarEstoqueItens` já roda (preflight, checkout e aprovação final em `pedidoOmieService.js`) —
+    é uma restrição ADICIONAL, a checagem normal de saldo disponível continua valendo também.
+  - Categoria de compra na Omie (`obterCategoriaCompra` em `omieClient.js`) não foi alterada — como
+    nenhuma das duas finalidades novas contém a palavra "aplica", ambas caem no bucket
+    `CATEG_REVENDA_{UNIDADE}` já configurado, igual a Revenda. Se o financeiro quiser categorias Omie
+    dedicadas para Uso e Consumo/Estoque, é preciso configurar novas env vars e ajustar essa função.
 
 ### Outros Fornecedores — split de excedente com fornecedor externo (17/07/2026)
 - Página `/outros-fornecedores`: quando a quantidade desejada excede o saldo VP, calcula o split

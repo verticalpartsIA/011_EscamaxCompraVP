@@ -141,6 +141,7 @@ export default function CartSidebar({ isOpen, onClose, cart, updateQuantity, rem
         idempotencyKey,
         pedidoVendaRef: validacaoRef?.tipo === 'pedido-venda' ? validacaoRef.numero : null,
         contratoRef: validacaoRef?.tipo === 'contrato' ? validacaoRef.numero : null,
+        usoConsumoJustificativa: validacaoRef?.tipo === 'uso-consumo' ? validacaoRef.justificativa : null,
         itens: cart.map(item => ({
             codigo: item.codigo,
             quantidade: item.quantity,
@@ -270,7 +271,7 @@ export default function CartSidebar({ isOpen, onClose, cart, updateQuantity, rem
                             </span>
                         </div>
                     </div>
-                    {validacaoRef?.validado && (
+                    {validacaoRef?.validado && (validacaoRef.tipo === 'pedido-venda' || validacaoRef.tipo === 'contrato') && (
                         <div>
                             <p className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em] mb-1.5">
                                 {validacaoRef.tipo === 'contrato' ? 'Contrato Vinculado' : 'Pedido de Venda Vinculado'}
@@ -287,6 +288,32 @@ export default function CartSidebar({ isOpen, onClose, cart, updateQuantity, rem
                                         </p>
                                     )}
                                 </div>
+                            </div>
+                        </div>
+                    )}
+                    {validacaoRef?.validado && validacaoRef.tipo === 'uso-consumo' && (
+                        <div>
+                            <p className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em] mb-1.5">
+                                Uso e Consumo Interno
+                            </p>
+                            <div className="flex items-center gap-2 rounded border border-green-200 bg-green-50 px-3 py-2">
+                                <Tag className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                                <span className="text-xs font-semibold text-green-800 line-clamp-2">
+                                    {validacaoRef.justificativa}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+                    {validacaoRef?.validado && validacaoRef.tipo === 'estoque' && (
+                        <div>
+                            <p className="text-[11px] font-bold text-neutral-500 uppercase tracking-[0.12em] mb-1.5">
+                                Reposição de Estoque
+                            </p>
+                            <div className="flex items-center gap-2 rounded border border-green-200 bg-green-50 px-3 py-2">
+                                <Tag className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                                <span className="text-xs font-semibold text-green-800">
+                                    Quantidade limitada ao estoque mínimo da VerticalParts
+                                </span>
                             </div>
                         </div>
                     )}
@@ -353,6 +380,8 @@ export default function CartSidebar({ isOpen, onClose, cart, updateQuantity, rem
                                     options={[
                                         { value: 'Revenda', label: 'Revenda' },
                                         { value: 'Atendimento a Contrato', label: 'Atendimento a Contrato' },
+                                        { value: 'Uso e Consumo', label: 'Uso e Consumo' },
+                                        { value: 'Estoque', label: 'Estoque' },
                                     ]}
                                     value={finalidadeAtual}
                                     onChange={setFinalidadeAtual}

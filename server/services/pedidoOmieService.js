@@ -3,7 +3,7 @@ const { criarRegistroContasPagarEscamax } = require('./financialTrace');
 const { etapaVendaProdutoVP } = require('./omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('./omieAudit');
 const { cnpjFiliais } = require('./checkoutPreflight');
-const { validarEstoqueItens } = require('./estoqueService');
+const { validarEstoqueItens, validarTetoReposicaoEstoque } = require('./estoqueService');
 const logger = require('../utils/logger');
 
 // Cria o Pedido de Compra (filial Escamax) e o Pedido de Venda (VerticalParts) no Omie.
@@ -24,6 +24,9 @@ async function criarPedidosOmie({ unidade, itens, tipoFrete, observacoes, finali
     // o checkout e a decisão da última alçada. Falhar aqui é melhor que criar
     // Pedido de Compra/Venda de item sem saldo.
     await validarEstoqueItens(itens);
+    if (finalidade === 'Estoque') {
+        await validarTetoReposicaoEstoque(itens);
+    }
 
     const resultado = {
         pedido_compra: { numero: null, status: 'pendente', detalhe: null },
