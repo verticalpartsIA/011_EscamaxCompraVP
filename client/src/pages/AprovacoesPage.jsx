@@ -70,13 +70,24 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                         <span className="rounded bg-primary/15 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-primary-dark">
                             {order.unidade || 'Unidade'}
                         </span>
+                        {order.tipo === 'fornecedor_externo' && (
+                            <span className="rounded border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-amber-800">
+                                Fornecedor Externo
+                            </span>
+                        )}
                         <span className={`rounded border px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.12em] ${statusClass(aprovacao.status)}`}>
                             {aprovacao.etapaLabel || aprovacao.status || 'Aguardando'}
                         </span>
                     </div>
-                    <p className="mt-1 text-xs text-neutral-500">
-                        Compra Escamax Nº {order.pedido_compra?.numero || '-'} · Venda VP Nº {order.pedido_venda?.numero || '-'} · {BRL(total)}
-                    </p>
+                    {order.tipo === 'fornecedor_externo' ? (
+                        <p className="mt-1 text-xs text-neutral-500">
+                            Fornecedor {order.fornecedor?.nome || '-'} · {BRL(total)} · sem integração automática ao Omie
+                        </p>
+                    ) : (
+                        <p className="mt-1 text-xs text-neutral-500">
+                            Compra Escamax Nº {order.pedido_compra?.numero || '-'} · Venda VP Nº {order.pedido_venda?.numero || '-'} · {BRL(total)}
+                        </p>
+                    )}
                 </div>
                 {order.financeiro?.notificado && (
                     <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-bold text-green-700">
@@ -87,6 +98,25 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                     </div>
                 )}
             </div>
+
+            {order.tipo === 'fornecedor_externo' && (
+                <div className="mt-4 space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    {order.vinculo?.numero && (
+                        <p className="text-[11px] font-bold text-amber-800">
+                            Vinculado ao {order.vinculo.tipo === 'contrato' ? 'Contrato' : 'Pedido de Venda'} Nº {order.vinculo.numero}
+                        </p>
+                    )}
+                    {(order.itens || []).map((item, idx) => (
+                        <div key={idx} className="rounded border border-amber-100 bg-white px-3 py-2 text-xs">
+                            <p className="font-bold text-neutral-900">{item.codigo} — {item.descricao}</p>
+                            <p className="mt-0.5 text-neutral-600">
+                                Qtd. {item.quantidade} · Preço VP {BRL(item.precoVP)} · Preço fornecedor {BRL(item.preco_unitario)}
+                            </p>
+                            {item.motivoEstoque && <p className="mt-0.5 text-amber-700">{item.motivoEstoque}</p>}
+                        </div>
+                    ))}
+                </div>
+            )}
 
             <div className="mt-4 grid gap-2 md:grid-cols-3">
                 {(aprovacao.alcadas || []).map(alcada => (
@@ -120,9 +150,15 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                     Aprovação registrada, mas a sincronização de etapa no Omie precisa de revisão: {order.pedido_venda.etapa_sync_detalhe || 'erro não detalhado'}
                 </div>
             )}
-            {!planoPagamento && (
+            {!planoPagamento && order.tipo !== 'fornecedor_externo' && (
                 <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-danger">
                     Pedido sem plano financeiro salvo. O faturamento ficará bloqueado até correção.
+                </div>
+            )}
+
+            {order.tipo === 'fornecedor_externo' && aprovacao.status === 'aprovado' && (
+                <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-800">
+                    Aprovado. {order.financeiro?.compra?.detalhe}
                 </div>
             )}
 

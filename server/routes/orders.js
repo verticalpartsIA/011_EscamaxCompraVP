@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
 const omieClient = require('../services/omieClient');
-const { readOrders, findOrder, updateOrder } = require('../services/orderStore');
+const { readOrders, findOrder, updateOrder, appendOrder } = require('../services/orderStore');
 const { validarPlanoPagamentoSalvo } = require('../services/paymentPlan');
 const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincronizacaoEtapa } = require('../services/omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
@@ -111,6 +111,98 @@ router.get('/', authMiddleware, async (req, res) => {
         res.json(orders.map(withAprovacao));
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+const UNIDADES_VALIDAS = ['BRASILIA', 'FLORIANOPOLIS', 'PICARRAS', 'SALVADOR', 'SAOPAULO'];
+
+// POST /api/orders/externo — finaliza o carrinho de fornecedor externo (Outros
+// Fornecedores) como um pedido rastreável, seguindo o MESMO fluxo de aprovação
+// por alçadas dos pedidos VerticalParts (issues #40/#41/#42: antes o split
+// calculava o excedente pra fornecedor externo mas não existia nenhum jeito de
+// finalizar/enviar esse excedente pra aprovação — ficava só no estado local do
+// navegador, sem rastro nenhum).
+//
+// Diferença importante pro pedido VP: NÃO cria Pedido de Compra/Venda no Omie
+// ao ser aprovado (o fornecedor concorrente não é o mesmo cadastro de fornecedor
+// VP na Omie da filial — criar automaticamente exigiria localizar/cadastrar um
+// fornecedor novo lá, o que não foi pedido e arriscaria sujar a Omie com um
+// cadastro errado). Fica marcado como aprovado, com Contas a Pagar a lançar
+// manualmente pelo financeiro — ver `financeiro.compra.detalhe` no pedido.
+router.post('/externo', authMiddleware, async (req, res) => {
+    try {
+        const { unidade, fornecedor, vinculo, itens } = req.body;
+
+        const unidadeUp = String(unidade || '').toUpperCase();
+        if (!UNIDADES_VALIDAS.includes(unidadeUp)) {
+            return res.status(400).json({ error: `Unidade inválida: ${unidade}` });
+        }
+        if (!fornecedor?.nome || !String(fornecedor.nome).trim()) {
+            return res.status(400).json({ error: 'Informe o nome do fornecedor externo.' });
+        }
+        if (!Array.isArray(itens) || itens.length === 0) {
+            return res.status(400).json({ error: 'Informe ao menos um item para o fornecedor externo.' });
+        }
+        const invalidos = itens.filter(i => !i.codigoVP || Number(i.quantidade || 0) <= 0 || Number(i.precoConcorrente || 0) <= 0);
+        if (invalidos.length > 0) {
+            return res.status(400).json({ error: 'Todos os itens precisam de código VP, quantidade positiva e preço do fornecedor positivo.' });
+        }
+
+        const itensPedido = itens.map(i => ({
+            codigo: i.codigoVP,
+            codigoFornecedor: i.codigoFornecedor || null,
+            descricao: i.descricao || i.codigoVP,
+            quantidade: Number(i.quantidade),
+            preco_unitario: Number(i.precoConcorrente),
+            precoVP: Number(i.precoVP || 0),
+            motivoEstoque: i.motivoEstoque || 'Estoque insuficiente na VerticalParts para atender a quantidade desejada.',
+        }));
+        const totalCarrinho = itensPedido.reduce((sum, i) => sum + (i.quantidade * i.preco_unitario), 0);
+        const aprovacao = criarFluxoAprovacaoProdutos({ valorTotal: totalCarrinho, origem: 'fornecedor_externo' });
+
+        const orderEntry = {
+            id: `EXT-${Date.now()}`,
+            tipo: 'fornecedor_externo',
+            criadoEm: new Date().toISOString(),
+            unidade: unidadeUp,
+            fornecedor: { nome: String(fornecedor.nome).trim() },
+            vinculo: vinculo || null,
+            itens: itensPedido,
+            finalidade: null,
+            aprovacao,
+            financeiro: {
+                compra: { status: 'pendente', detalhe: 'Aguardando aprovação do fluxo. Compra em fornecedor externo — sem integração automática ao Omie; lançar Contas a Pagar manualmente após a aprovação.' },
+                venda: { status: 'nao_aplicavel', detalhe: 'Compra em fornecedor externo — não gera Pedido de Venda na VerticalParts.' },
+            },
+            pedido_compra: { numero: null, status: 'pendente', detalhe: null },
+            pedido_venda: { numero: null, status: 'nao_aplicavel', detalhe: null },
+        };
+
+        await appendOrder(orderEntry);
+
+        avisarNovaAprovacao({
+            nivel: aprovacao.alcadas[0].nivel,
+            orderId: orderEntry.id,
+            unidade: unidadeUp,
+            valorTotal: totalCarrinho,
+        }).then(resultado => registrarLog({
+            usuarioEmail: 'sistema',
+            acao: resultado.ok ? 'whatsapp.aviso_enviado' : 'whatsapp.aviso_falhou',
+            detalhes: { nivel: aprovacao.alcadas[0].nivel, erro: resultado.error || null },
+            pedidoId: orderEntry.id,
+        })).catch(e => logger.warn(`[whatsapp] Falha ao avisar 1ª alçada do pedido externo ${orderEntry.id}: ${e.message}`));
+
+        await registrarLog({
+            usuarioEmail: req.user?.email,
+            acao: 'pedido_externo.criado',
+            detalhes: { unidade: unidadeUp, fornecedor: orderEntry.fornecedor.nome, valorTotal: totalCarrinho },
+            pedidoId: orderEntry.id,
+        });
+
+        res.status(201).json(orderEntry);
+    } catch (err) {
+        logger.error(`[orders/externo] Erro: ${err.message}`);
+        res.status(500).json({ error: 'Erro ao registrar o pedido para fornecedor externo.' });
     }
 });
 
@@ -243,6 +335,21 @@ router.post('/:id/aprovacao/decisao', authMiddleware, async (req, res) => {
 
         if (!aprovouFluxo) {
             return res.json({ id: updated.id, aprovacao: updated.aprovacao });
+        }
+
+        // Pedido de fornecedor externo (issues #40/#41/#42): aprovado totalmente, mas
+        // NÃO passa pelo gatilho de criação no Omie abaixo — esse bloco é específico do
+        // fluxo VerticalParts (Pedido de Compra na filial + Pedido de Venda na VP, a
+        // mesma empresa dos dois lados). Fornecedor externo não tem esse par; fica
+        // marcado como aprovado, com Contas a Pagar a lançar manualmente pelo financeiro.
+        if (updated.tipo === 'fornecedor_externo') {
+            await registrarLog({
+                usuarioEmail: 'sistema',
+                acao: 'pedido_externo.aprovado',
+                detalhes: { unidade: updated.unidade, fornecedor: updated.fornecedor?.nome },
+                pedidoId: updated.id,
+            });
+            return res.json({ id: updated.id, aprovacao: updated.aprovacao, financeiro: updated.financeiro });
         }
 
         // Fluxo totalmente aprovado agora: é este o gatilho para criar de fato o Pedido de

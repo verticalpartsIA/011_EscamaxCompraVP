@@ -61,6 +61,8 @@ export default function OutrosFornecedoresPage({
     const [erroValidacao, setErroValidacao] = useState('');
     const [numeroValidacao, setNumeroValidacao] = useState('');
     const [fornecedorCart, setFornecedorCart] = useState([]);
+    const [finalizandoExterno, setFinalizandoExterno] = useState(false);
+    const [resultadoFinalizacao, setResultadoFinalizacao] = useState(null);
 
     const quantidadeDesejada = Number(form.quantidade || 0);
     const precoConcorrente = Number(form.precoConcorrente || 0);
@@ -172,12 +174,71 @@ export default function OutrosFornecedoresPage({
                     quantidadeDesejada,
                     quantidadeVP,
                     quantidadeFornecedor,
+                    estoqueVP,
                     precoVP,
                     precoConcorrente,
                     diferencaUnit,
                 },
             ]);
         }
+    };
+
+    // Finaliza o(s) carrinho(s) de fornecedor externo: agrupa por fornecedor (cada
+    // fornecedor vira um pedido/Contas a Pagar separado) e envia cada grupo pro
+    // mesmo fluxo de aprovação por alçadas dos pedidos VerticalParts — antes esse
+    // excedente calculado no split não tinha nenhum jeito de virar um pedido de
+    // verdade, rastreável (issues #40/#41/#42).
+    const handleFinalizarExterno = async () => {
+        if (fornecedorCart.length === 0 || !filial?.id) return;
+        setFinalizandoExterno(true);
+        setResultadoFinalizacao(null);
+        const token = localStorage.getItem('token');
+
+        const grupos = new Map();
+        for (const item of fornecedorCart) {
+            const chave = item.fornecedor || 'Fornecedor externo';
+            if (!grupos.has(chave)) grupos.set(chave, []);
+            grupos.get(chave).push(item);
+        }
+
+        const sucesso = [];
+        const falhas = [];
+        for (const [nomeFornecedor, itensGrupo] of grupos) {
+            try {
+                const resp = await fetch('/api/orders/externo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({
+                        unidade: filial.id,
+                        fornecedor: { nome: nomeFornecedor },
+                        vinculo: validacaoCarrinho?.validado
+                            ? { tipo: validacaoCarrinho.tipo, numero: validacaoCarrinho.numero }
+                            : null,
+                        itens: itensGrupo.map(i => ({
+                            codigoVP: i.codigoVP,
+                            codigoFornecedor: i.codigoFornecedor,
+                            descricao: i.descricao,
+                            quantidade: i.quantidadeFornecedor,
+                            precoConcorrente: i.precoConcorrente,
+                            precoVP: i.precoVP,
+                            motivoEstoque: `Estoque insuficiente na VerticalParts: desejado ${numero(i.quantidadeDesejada)}, disponível ${numero(i.estoqueVP)} — excedente de ${numero(i.quantidadeFornecedor)} direcionado a ${nomeFornecedor}.`,
+                        })),
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || `Erro ${resp.status}`);
+                sucesso.push({ fornecedor: nomeFornecedor, orderId: data.id, itens: itensGrupo });
+            } catch (e) {
+                falhas.push({ fornecedor: nomeFornecedor, erro: e.message });
+            }
+        }
+
+        // Remove do carrinho só os itens dos grupos que deram certo — falhas ficam
+        // pra tentar de novo, sem perder o que já foi preenchido.
+        const idsRemovidos = new Set(sucesso.flatMap(s => s.itens.map(i => i.id)));
+        setFornecedorCart(prev => prev.filter(item => !idsRemovidos.has(item.id)));
+        setResultadoFinalizacao({ sucesso, falhas });
+        setFinalizandoExterno(false);
     };
 
     const validacaoTexto = useMemo(() => {
@@ -405,6 +466,40 @@ export default function OutrosFornecedoresPage({
                 {excedeLimiteRevenda && (
                     <div className="mx-4 mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-danger">
                         Compra bloqueada: os itens direcionados ao concorrente excedem o limite de 70% da proposta Omie.
+                    </div>
+                )}
+                {fornecedorCart.length > 0 && (
+                    <div className="border-t border-neutral-100 px-4 py-3">
+                        <button
+                            type="button"
+                            onClick={handleFinalizarExterno}
+                            disabled={finalizandoExterno || excedeLimiteRevenda}
+                            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-black transition hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <ShoppingCart className="h-4 w-4" />
+                            {finalizandoExterno ? 'Enviando...' : 'Finalizar Carrinho Externo e Enviar para Aprovação'}
+                        </button>
+                        <p className="mt-2 text-xs text-neutral-500">
+                            Cada fornecedor vira um pedido separado, na mesma fila de aprovação por alçadas dos pedidos VerticalParts.
+                            Não é criado pedido automático na Omie — o Contas a Pagar do fornecedor externo é lançado manualmente
+                            pelo financeiro após a aprovação.
+                        </p>
+                    </div>
+                )}
+                {resultadoFinalizacao && (
+                    <div className="space-y-2 border-t border-neutral-100 px-4 py-3">
+                        {resultadoFinalizacao.sucesso.map(s => (
+                            <div key={s.orderId} className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700">
+                                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                                Pedido {s.orderId} enviado para aprovação — fornecedor {s.fornecedor}.
+                            </div>
+                        ))}
+                        {resultadoFinalizacao.falhas.map(f => (
+                            <div key={f.fornecedor} className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-danger">
+                                <AlertTriangle className="h-4 w-4 shrink-0" />
+                                Falha ao enviar pedido do fornecedor {f.fornecedor}: {f.erro}
+                            </div>
+                        ))}
                     </div>
                 )}
             </section>

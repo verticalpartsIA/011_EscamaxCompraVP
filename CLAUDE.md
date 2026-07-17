@@ -81,6 +81,29 @@
   pelo código numérico direto. O checkout revalida o contrato no servidor antes de criar os pedidos (antes
   confiava só no `contratoRef` do frontend). Ver issue [#26](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/26).
 
+### Outros Fornecedores — split de excedente com fornecedor externo (17/07/2026)
+- Página `/outros-fornecedores`: quando a quantidade desejada excede o saldo VP, calcula o split
+  (VP até o saldo real + excedente pro concorrente) e permite finalizar o excedente como pedido
+  rastreável (issues #40/#41/#42 — antes o excedente só existia em estado local do navegador, sem
+  nenhum jeito de virar pedido de verdade).
+- `POST /api/orders/externo` (`server/routes/orders.js`) cria o pedido — reaproveita a MESMA tabela
+  `pedidos` e o mesmo `approvalEngine.js` (alçadas por valor: Gustavo/Michel/Diego) dos pedidos
+  VerticalParts, marcado com `tipo: 'fornecedor_externo'`. Cada fornecedor distinto no carrinho vira
+  um pedido separado (agrupado por nome no frontend antes de enviar).
+- **Diferença crítica pro pedido VP**: ao ser totalmente aprovado, o pedido de fornecedor externo
+  **não** dispara `criarPedidosOmie()` (esse gatilho, em `routes/orders.js`, agora tem um `if
+  (updated.tipo === 'fornecedor_externo') return ...` logo antes do bloco de criação no Omie) —
+  fornecedor concorrente não é o mesmo cadastro de fornecedor VP na Omie da filial, então criar
+  automaticamente exigiria localizar/cadastrar um fornecedor novo lá, o que não foi implementado.
+  Fica marcado `financeiro.compra.status: 'pendente'` com o detalhe "lançar Contas a Pagar
+  manualmente" — é o financeiro quem lança na Omie depois, não o sistema.
+- `AprovacoesPage.jsx` mostra esses pedidos na mesma fila (com badge "Fornecedor Externo" e o
+  comparativo de preço VP × concorrente + motivo do estoque insuficiente por item); `HistoryPage.jsx`
+  também lista, mas os badges de Pedido de Compra/Venda ficam "Pendente" pra sempre nesses pedidos
+  (não é bug — só não se aplica).
+- Testado localmente de ponta a ponta (criação → aprovação → confirmação de que Omie não foi
+  chamado) com usuários reais (Gustavo) antes do deploy; pedido de teste removido do Supabase depois.
+
 ### Backend Omie
 - `server/services/omieClient.js` — toda a lógica de chamada à Omie (VP + filiais)
 - Inclui: busca de produto por código, clone de produto para filial, IPI, contas correntes
