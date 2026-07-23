@@ -685,3 +685,13 @@ Ideias naturais de proxima fase:
 O **Portal Escamax - AprovacaoCompra** e uma solucao B2B para conectar o estoque e a operacao comercial da VerticalParts com as necessidades de compra das unidades Escamax. Ele organiza o processo desde a consulta de pecas ate a criacao de documentos no Omie, com autenticacao, carrinho, regras comerciais, historico e dashboard.
 
 Como projeto de portfolio, demonstra capacidade de construir uma aplicacao full stack com integracao ERP, regras de negocio reais, automacao operacional e interface administrativa focada em produtividade.
+
+---
+
+## Contributors
+
+- Gelson Simões — criador e responsável pelas soluções VerticalParts
+
+---
+
+**Feito por Gelson Simões**
