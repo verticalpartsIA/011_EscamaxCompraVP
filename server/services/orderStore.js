@@ -112,10 +112,21 @@ async function updateOrder(id, updater) {
     throw new Error(`orderStore.updateOrder: não foi possível atualizar o pedido ${id} após 3 tentativas (concorrência).`);
 }
 
+async function deleteOrder(id) {
+    const resp = await fetch(
+        `${SUPABASE_URL()}/rest/v1/pedidos?id=eq.${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: headers({ 'Prefer': 'return=representation' }) }
+    );
+    if (!resp.ok) throw new Error(`orderStore.deleteOrder: Supabase ${resp.status}`);
+    const deleted = await resp.json();
+    return deleted.length > 0;
+}
+
 module.exports = {
     readOrders,
     appendOrder,
     findOrder,
     findOrderByIdempotencyKey,
     updateOrder,
+    deleteOrder,
 };

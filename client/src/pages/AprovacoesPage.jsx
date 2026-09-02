@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ClipboardCheck, PackageCheck, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ClipboardCheck, PackageCheck, RefreshCw, ShieldCheck, Trash2, XCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -96,6 +96,22 @@ function OrderApprovalCard({ order, onAction, permissoes }) {
                             ? 'Entrega confirmada pelo SAC Pós-Venda 360 — Faturamento acionado'
                             : 'Financeiro acionado para faturar'}
                     </div>
+                )}
+                {permissoes?.admin && (
+                    <button
+                        type="button"
+                        title="Excluir pedido definitivamente"
+                        onClick={() => {
+                            if (window.confirm(`Excluir definitivamente o pedido ${order.id}? Essa ação não pode ser desfeita.`)) {
+                                executar('excluir');
+                            }
+                        }}
+                        disabled={Boolean(busy)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-bold text-danger transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Excluir
+                    </button>
                 )}
             </div>
 
@@ -316,6 +332,17 @@ export default function AprovacoesPage() {
         setError('');
         if (type === 'erro-local') {
             setError(motivo || 'Erro ao executar ação.');
+            return;
+        }
+        if (type === 'excluir') {
+            const res = await fetch(`${API_BASE}/api/orders/${encodeURIComponent(order.id)}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || `Erro ${res.status}`);
+            setStatusMsg(`Pedido ${order.id} excluído.`);
+            await carregar();
             return;
         }
         const url = type === 'entregar'

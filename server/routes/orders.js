@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/authMiddleware');
+const adminMiddleware = require('../middleware/adminMiddleware');
 const omieClient = require('../services/omieClient');
-const { readOrders, findOrder, updateOrder, appendOrder } = require('../services/orderStore');
+const { readOrders, findOrder, updateOrder, appendOrder, deleteOrder } = require('../services/orderStore');
 const { validarPlanoPagamentoSalvo } = require('../services/paymentPlan');
 const { etapaVendaProdutoVP, registrarSincronizacaoEtapa, registrarErroSincronizacaoEtapa } = require('../services/omieStages');
 const { montarAuditoriaOmie, montarAuditoriaErro } = require('../services/omieAudit');
@@ -211,6 +212,28 @@ router.get('/aprovacoes/permissoes', authMiddleware, async (req, res) => {
         res.json(await obterPermissoesAprovacao(req.user?.email));
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE /api/orders/:id — exclui um pedido definitivamente (admin-only).
+// Usado pra limpar pedidos de teste/lixo — nunca chamado pelo fluxo normal de
+// aprovação (que reprova, não apaga, pra manter rastro de auditoria).
+router.delete('/:id', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const order = await findOrder(req.params.id);
+        if (!order) return res.status(404).json({ error: 'Pedido não encontrado.' });
+
+        await deleteOrder(req.params.id);
+        await registrarLog({
+            usuarioEmail: req.user?.email,
+            acao: 'pedido.excluido',
+            pedidoId: req.params.id,
+            detalhes: { unidade: order.unidade, tipo: order.tipo || 'produtos', valorTotal: calcularValorPedido(order) },
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        logger.error(`[orders/:id DELETE] Erro: ${err.message}`);
+        res.status(500).json({ error: 'Erro ao excluir o pedido.' });
     }
 });
 
