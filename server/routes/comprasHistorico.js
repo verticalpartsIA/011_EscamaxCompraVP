@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const fetch = require('../utils/fetchComKeepAlive');
 const authMiddleware = require('../middleware/authMiddleware');
+const adminMiddleware = require('../middleware/adminMiddleware');
+const { registrarLog } = require('../services/auditoriaService');
 const { sincronizarFilial, sincronizarTodasFiliais, FILIAIS } = require('../services/comprasHistoricoSync');
 
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hhgvlcskxopryqvhofsg.supabase.co';
@@ -31,6 +33,41 @@ router.get('/', async (req, res) => {
         res.json(data);
     } catch (err) {
         res.status(500).json({ error: `Erro ao consultar histórico de compras: ${err.message}` });
+    }
+});
+
+// DELETE /api/compras-historico?unidade=SAOPAULO — apaga o cache local da filial
+// (admin-only). É só um cache sincronizado do Omie (compras_historico_vp), não é
+// a fonte de verdade — sempre reconstruível via POST /sync. `unidade` é
+// obrigatório de propósito, pra ninguém zerar todas as filiais com um clique só.
+router.delete('/', adminMiddleware, async (req, res) => {
+    const unidade = String(req.query.unidade || '').toUpperCase();
+    if (!FILIAIS.includes(unidade)) {
+        return res.status(400).json({ error: `Filial inválida ou ausente. Use uma de: ${FILIAIS.join(', ')}` });
+    }
+
+    try {
+        const resp = await fetch(
+            `${SUPABASE_URL}/rest/v1/compras_historico_vp?filial=eq.${unidade}`,
+            {
+                method: 'DELETE',
+                headers: {
+                    'apikey': SUPABASE_KEY,
+                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    'Prefer': 'return=representation',
+                },
+            }
+        );
+        if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
+        const deleted = await resp.json();
+        await registrarLog({
+            usuarioEmail: req.user?.email,
+            acao: 'historico_compras.excluido',
+            detalhes: { unidade, linhasExcluidas: deleted.length },
+        });
+        res.json({ ok: true, linhasExcluidas: deleted.length });
+    } catch (err) {
+        res.status(500).json({ error: `Erro ao excluir histórico de compras: ${err.message}` });
     }
 });
 

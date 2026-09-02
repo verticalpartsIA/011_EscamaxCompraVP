@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Package, Calendar, Filter, RefreshCw, Building2, CreditCard, History, AlertTriangle } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Package, Calendar, Filter, RefreshCw, Building2, CreditCard, History, AlertTriangle, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -209,11 +209,12 @@ function OrderRow({ order, onAudit, auditing }) {
 // Estritamente isolado pela filial ativa na sidebar. Nunca mistura dados de
 // filiais diferentes: cada card mostra somente o histórico da filial selecionada.
 function ComprasHistoricoOmie() {
-    const { filial } = useAuth();
+    const { filial, user } = useAuth();
     const token = localStorage.getItem('token');
     const [itens, setItens] = useState([]);
     const [loading, setLoading] = useState(true);
     const [syncing, setSyncing] = useState(false);
+    const [excluindo, setExcluindo] = useState(false);
     const [error, setError] = useState(null);
 
     const carregar = useCallback(async () => {
@@ -252,6 +253,26 @@ function ComprasHistoricoOmie() {
         }
     };
 
+    const excluir = async () => {
+        if (!filial?.id) return;
+        if (!window.confirm(`Excluir o histórico de compras em cache da filial ${filial.label}? Isso não apaga nada no Omie — pode ser reconstruído clicando em "Sincronizar" depois.`)) {
+            return;
+        }
+        setExcluindo(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/compras-historico?unidade=${filial.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Erro ${res.status}`);
+            await carregar();
+        } catch (e) {
+            setError(e.message);
+        } finally {
+            setExcluindo(false);
+        }
+    };
+
     const total = useMemo(() => itens.reduce((s, i) => s + Number(i.valor || 0), 0), [itens]);
 
     return (
@@ -271,14 +292,27 @@ function ComprasHistoricoOmie() {
                         )}
                     </p>
                 </div>
-                <button
-                    onClick={sincronizar}
-                    disabled={syncing}
-                    className="flex items-center gap-2 px-3 py-1.5 rounded bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-semibold border border-neutral-200 transition-colors disabled:opacity-50 shrink-0"
-                >
-                    <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
-                    Sincronizar
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                    <button
+                        onClick={sincronizar}
+                        disabled={syncing}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded bg-white hover:bg-neutral-50 text-neutral-700 text-xs font-semibold border border-neutral-200 transition-colors disabled:opacity-50"
+                    >
+                        <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />
+                        Sincronizar
+                    </button>
+                    {user?.admin && (
+                        <button
+                            onClick={excluir}
+                            disabled={excluindo || itens.length === 0}
+                            title="Excluir histórico em cache desta filial (admin)"
+                            className="flex items-center gap-2 px-3 py-1.5 rounded bg-white hover:bg-red-50 text-danger text-xs font-semibold border border-red-200 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                            <Trash2 size={13} />
+                            Excluir histórico
+                        </button>
+                    )}
+                </div>
             </div>
 
             {loading ? (
