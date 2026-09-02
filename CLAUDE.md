@@ -199,20 +199,44 @@
   ficaram faltando até 15/07/2026, e derrubavam o boot do Node com `MODULE_NOT_FOUND` assim que outro arquivo
   passou a importá-los). Ao fazer deploy manual, é mais seguro comparar a lista completa de arquivos do
   backend (`git ls-tree -r --name-only <commit> -- server/`) contra o que existe de fato na pasta `nodejs/`
-- **Incidente 02/09/2026 — catálogo `/produtos-vp` em branco**: o backend de produção estava parado no
-  commit `2090755` (15/07/2026), sem os 4 commits seguintes (`fda19de`, `82dd66b`, `0b52441`, `5c3983f`,
-  todos de 17/07/2026). O commit `82dd66b` trocou a leitura de saldo de estoque no frontend (direto do
-  Supabase com a chave anon) por um novo endpoint autenticado (`GET /api/estoque/vp`) — o frontend (deploy
-  automático) já usava esse endpoint, mas o backend em produção não o tinha (`404 Rota não encontrada`).
-  Como `ProdutosVPPage.jsx` busca catálogo e estoque em paralelo (`Promise.all`), o 404 do estoque derrubava
-  a promise inteira e nenhum produto aparecia — mesmo com o catálogo e o banco 100% saudáveis. Confirmado
-  também que `POST /api/orders/externo` (Outros Fornecedores, mesma leva de commits) estava com o mesmo
-  problema. Segundo o time, o deploy do backend passou a ser automático ao empurrar commit pra
-  `feat/reskin-verticalparts` — isso contradiz o que este arquivo documentava desde a issue #27 (deploy
-  manual porque o git de `nodejs/` apontava pro repo errado). Se isso realmente foi corrigido, o item 6.2
-  abaixo já não se aplica mais — mas ainda não foi confirmado por escrito onde/quando o `nodejs/` foi
-  reapontado; validar e simplificar esta seção a próxima vez que alguém mexer em deploy de backend.
-  antes de reiniciar, não só copiar os arquivos que mudaram no commit que motivou o deploy.
+- **Confirmado 02/09/2026 — o deploy automático do GitHub é só do frontend.** O painel "Implantações"/"Web
+  app Node.js" do hPanel (Hostinger), que mostra commits sendo publicados automaticamente a cada push em
+  `feat/reskin-verticalparts`, roda `cd client && npm install && npm run build` (log confere: é o `vite
+  build` do Vite, gera `client/dist/`) — **não** toca em nada de `server/`, não reinicia o processo Node, e
+  não é git (a pasta `nodejs/` continua sem `.git`, confirmado por diagnóstico ao vivo). Se alguém disser
+  "é só commitar que sobe" sobre o backend, está confundindo com esse pipeline do frontend — o item 6.2
+  abaixo continua valendo integralmente, nada mudou desde a issue #27.
+- **Estrutura real da pasta `nodejs/` em produção** (`~/domains/escamaxcompravp.vpsistema.com/nodejs/` na
+  conta Hostinger — credenciais em `credenciais.md`): é **plana**, sem subpasta `server/` — o conteúdo de
+  `server/` do repo vai direto pra raiz de `nodejs/` (ex.: `server/routes/estoque.js` do repo → `nodejs/
+  routes/estoque.js` em produção, **sem** prefixo `server/`). Contém `controllers/`, `data/`, `middleware/`,
+  `migrations/`, `routes/`, `services/`, `utils/`, `server.js`, `start.cjs`, `node_modules/`, `.env` (+
+  backups `.env.bak.*`). Processo Node sobe via Passenger/LiteSpeed (`lsnode`); `tmp/restart.txt` é o
+  gatilho de restart. Numa sessão SSH não-interativa, `node`/`npm` não estão no `PATH` por padrão — precisa
+  `export PATH=/opt/alt/alt-nodejs22/root/usr/bin:$PATH` antes de rodar `node --check` ou similar.
+- **Incidente 02/09/2026 — catálogo `/produtos-vp` em branco, depois queda total (503) na 1ª tentativa de
+  correção** ([#53](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/53),
+  [#54](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/54),
+  [#55](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/55) — **resolvido**). O backend de
+  produção estava parado bem antes do que se imaginava — pelo menos anterior ao commit `83574f4` (12/07/2026,
+  "Reaproveita conexão HTTPS"), sem esse e todos os commits seguintes até `77c4c6f`. O `82dd66b` (17/07) trocou
+  a leitura de saldo de estoque no frontend (direto do Supabase com a chave anon) por um novo endpoint
+  autenticado (`GET /api/estoque/vp`) — o frontend (deploy automático) já usava esse endpoint, mas o backend
+  em produção não o tinha (`404`). Como `ProdutosVPPage.jsx` busca catálogo e estoque em paralelo
+  (`Promise.all`), o 404 do estoque derrubava a promise inteira e nenhum produto aparecia — mesmo com o
+  catálogo e o banco 100% saudáveis. `POST /api/orders/externo` (Outros Fornecedores) tinha o mesmo problema.
+  **1ª tentativa de correção derrubou o site inteiro (503 em tudo, inclusive `/api/health`)**: o deploy manual
+  dos arquivos alterados esqueceu `server/utils/httpAgent.js` (dependência nova de `omieClient.js`, introduzida
+  em `83574f4` — o mesmo arquivo que a issue #25 já tinha citado como esquecido uma vez antes, em 15/07).
+  Revertido pro backup em minutos. **2ª tentativa**: antes de reaplicar, foi feita uma análise completa da
+  árvore de `require()` de todos os arquivos do commit (não só o diff superficial) — achou que `services/
+  estoqueService.js` também precisa de `utils/fetchComKeepAlive.js` (mesmo commit `83574f4`), que teria
+  quebrado de novo se não fosse incluído dessa vez. Redeploy dos 12 arquivos (9 alterados + `routes/
+  estoque.js`, `utils/httpAgent.js`, `utils/fetchComKeepAlive.js`) com `node --check` em cada um antes do
+  restart — sucesso, confirmado com `/api/health` 200 e `/api/estoque/vp` / `/api/orders/externo` voltando
+  401 (rota existe, exige auth) em vez de 404/503. **Lição**: ao fazer deploy manual, nunca copiar só os
+  arquivos que aparecem no `git diff` de um commit — sempre seguir a árvore de `require()` de cada arquivo
+  copiado (transitivamente) e comparar contra o que já existe em produção antes de reiniciar.
 - Health check em produção é `GET /api/health` (não `/health` — o Passenger só roteia `/api/*` para o Node;
   qualquer outra coisa cai no fallback estático do SPA). Depois de reiniciar (`touch tmp/restart.txt`), o
   Passenger recarrega o processo de forma preguiçosa — a primeira requisição pode responder 503 por alguns
@@ -257,15 +281,22 @@
 6.1. **Migrar segredos do `.env` para o Cofre Central de Credenciais** — já existe o papel `svc_escamax`
    provisionado (Supabase Vault, projeto `vpsistema`, doc em `verticalpartsIA/001_vpsistema` →
    `Instruções/COFRE_CREDENCIAIS.md`), mas o backend ainda lê tudo direto de `process.env`.
-6.2. **Corrigir o git da pasta `nodejs/` de produção** — hoje aponta pro repo errado (`vprequisicoes`) com
-   raiz na home inteira da conta de hospedagem, tornando `git pull` inseguro ali. Ver issue
-   [#27](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/27) para diagnóstico e sugestão de correção.
-6.3. **Terminar o deploy do keep-alive HTTPS (issue #25)** — `server/utils/httpAgent.js` e
-   `fetchComKeepAlive.js` já foram deployados (15/07/2026, eram um blocker de boot), mas os outros ~10
-   arquivos que passariam a *usar* esse agente (`orderStore.js`, `omieVPSync.js`, `estoqueService.js`,
+6.2. **Configurar deploy automático de verdade pro backend** — a pasta `nodejs/` de produção **não é um repo
+   git** (confirmado por diagnóstico ao vivo em 02/09/2026, ver issue
+   [#27](https://github.com/verticalpartsIA/011_EscamaxCompraVP/issues/27)): deploy é sempre por
+   cópia/SCP manual. A confusão histórica da issue #27 (".git apontando pro repo errado") era na verdade o
+   `~` (home) da conta `u969661049`, que tem seu próprio `.git` residual apontando pra
+   `vprequisicoes` — não tem relação funcional com `nodejs/`, é resíduo de outro clone. Continua não
+   havendo automação real pro backend — só o frontend (`client/`) tem deploy automático via GitHub →
+   Hostinger (confirmado 02/09/2026: o painel "Implantações" só roda `npm run build` do Vite, não toca
+   em `server/`).
+6.3. ~~**Terminar o deploy do keep-alive HTTPS (issue #25)**~~ — **RESOLVIDO em 02/09/2026** (via incidente
+   #53/#54/#55): `server/utils/httpAgent.js` e `fetchComKeepAlive.js` na verdade **não** tinham sido
+   deployados em 15/07 como este arquivo dizia antes — só foram parar em produção agora, junto com o
+   redeploy do `77c4c6f`. Os arquivos que os usam (`orderStore.js`, `omieVPSync.js`, `estoqueService.js`,
    `comprasHistoricoSync.js`, `auditoriaService.js`, `whatsappNotifier.js`, `usuariosService.js`,
-   `servicosService.js`, `routes/comprasHistorico.js`, entre outros) não tiveram o conteúdo verificado —
-   podem ainda estar na versão antiga (`node-fetch` puro, sem risco, só sem o ganho de performance).
+   `servicosService.js`, `routes/comprasHistorico.js`, `omieClient.js`, entre outros) já estavam todos
+   atualizados também (fazem parte do mesmo commit `77c4c6f` ou de commits anteriores já presentes).
 
 ### Prioridade Baixa
 7. **Rotacionar GitHub token** — token antigo foi exposto em conversa de chat e revogado; novo token salvo em `credenciais.md`
