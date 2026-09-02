@@ -199,6 +199,19 @@
   ficaram faltando até 15/07/2026, e derrubavam o boot do Node com `MODULE_NOT_FOUND` assim que outro arquivo
   passou a importá-los). Ao fazer deploy manual, é mais seguro comparar a lista completa de arquivos do
   backend (`git ls-tree -r --name-only <commit> -- server/`) contra o que existe de fato na pasta `nodejs/`
+- **Incidente 02/09/2026 — catálogo `/produtos-vp` em branco**: o backend de produção estava parado no
+  commit `2090755` (15/07/2026), sem os 4 commits seguintes (`fda19de`, `82dd66b`, `0b52441`, `5c3983f`,
+  todos de 17/07/2026). O commit `82dd66b` trocou a leitura de saldo de estoque no frontend (direto do
+  Supabase com a chave anon) por um novo endpoint autenticado (`GET /api/estoque/vp`) — o frontend (deploy
+  automático) já usava esse endpoint, mas o backend em produção não o tinha (`404 Rota não encontrada`).
+  Como `ProdutosVPPage.jsx` busca catálogo e estoque em paralelo (`Promise.all`), o 404 do estoque derrubava
+  a promise inteira e nenhum produto aparecia — mesmo com o catálogo e o banco 100% saudáveis. Confirmado
+  também que `POST /api/orders/externo` (Outros Fornecedores, mesma leva de commits) estava com o mesmo
+  problema. Segundo o time, o deploy do backend passou a ser automático ao empurrar commit pra
+  `feat/reskin-verticalparts` — isso contradiz o que este arquivo documentava desde a issue #27 (deploy
+  manual porque o git de `nodejs/` apontava pro repo errado). Se isso realmente foi corrigido, o item 6.2
+  abaixo já não se aplica mais — mas ainda não foi confirmado por escrito onde/quando o `nodejs/` foi
+  reapontado; validar e simplificar esta seção a próxima vez que alguém mexer em deploy de backend.
   antes de reiniciar, não só copiar os arquivos que mudaram no commit que motivou o deploy.
 - Health check em produção é `GET /api/health` (não `/health` — o Passenger só roteia `/api/*` para o Node;
   qualquer outra coisa cai no fallback estático do SPA). Depois de reiniciar (`touch tmp/restart.txt`), o
